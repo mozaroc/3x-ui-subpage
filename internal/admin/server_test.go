@@ -525,6 +525,76 @@ func TestTemplateDelete(t *testing.T) {
 	}
 }
 
+func TestRouting_FullCRUDRoundTrip(t *testing.T) {
+	s, _ := newTestServer(t)
+	cookie := loginAndGetCookie(t, s)
+	token := csrfTokenFor(t, s, cookie)
+
+	// Create
+	form := url.Values{
+		"profile": {"gaming"}, "type": {"geoip"}, "value": {"CN"}, "outbound": {"direct"},
+		"sort_order": {"0"}, "enabled": {"1"}, "csrf_token": {token},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/routing", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("create: expected 302, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// List should show it
+	req = httptest.NewRequest(http.MethodGet, "/routing", nil)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), "gaming") {
+		t.Fatalf("expected list to contain created rule, got: %s", rec.Body.String())
+	}
+
+	all, err := s.routing.List()
+	if err != nil || len(all) != 1 {
+		t.Fatalf("expected exactly 1 rule, got %v (err=%v)", all, err)
+	}
+	id := all[0].ID
+
+	// Update
+	form = url.Values{
+		"profile": {"gaming"}, "type": {"cidr"}, "value": {"10.0.0.0/8"}, "outbound": {"proxy"},
+		"sort_order": {"5"}, "csrf_token": {token},
+	}
+	req = httptest.NewRequest(http.MethodPost, "/routing/"+itoa(id), strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("update: expected 302, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	updated, err := s.routing.Get(id)
+	if err != nil || updated.Type != "cidr" || updated.Enabled {
+		t.Fatalf("expected updated+disabled rule (checkbox omitted), got %+v (err=%v)", updated, err)
+	}
+
+	// Delete
+	form = url.Values{"csrf_token": {token}}
+	req = httptest.NewRequest(http.MethodPost, "/routing/"+itoa(id)+"/delete", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("delete: expected 302, got %d", rec.Code)
+	}
+
+	all, err = s.routing.List()
+	if err != nil || len(all) != 0 {
+		t.Fatalf("expected 0 rules after delete, got %v", all)
+	}
+}
+
 func itoa(n int64) string {
 	if n == 0 {
 		return "0"

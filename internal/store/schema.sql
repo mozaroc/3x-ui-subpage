@@ -65,3 +65,15 @@ CREATE TABLE IF NOT EXISTS sessions (
     expires_at INTEGER NOT NULL,
     created_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS routing_rules (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile    TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    type       TEXT NOT NULL,
+    value      TEXT NOT NULL,
+    outbound   TEXT NOT NULL DEFAULT '',
+    enabled    INTEGER NOT NULL DEFAULT 1,
+    updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_routing_rules_profile ON routing_rules(profile, sort_order);

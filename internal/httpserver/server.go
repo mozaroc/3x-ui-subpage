@@ -41,6 +41,8 @@ func (s *Server) Router() http.Handler {
 		r.Get("/xray.json", s.handleXrayJSON)
 		r.Get("/clash", s.handleClash)
 		r.Get("/mihomo", s.handleMihomo)
+		r.Get("/happ", s.handleHapp)
+		r.Get("/incy", s.handleIncy)
 		r.Get("/qr.png", s.handleQRPNG)
 		r.Get("/qr.svg", s.handleQRSVG)
 	})

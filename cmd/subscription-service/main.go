@@ -25,6 +25,8 @@ import (
 	"github.com/irazin/3x-ui-subpage/internal/assignment"
 	"github.com/irazin/3x-ui-subpage/internal/config"
 	"github.com/irazin/3x-ui-subpage/internal/generator/clash"
+	"github.com/irazin/3x-ui-subpage/internal/generator/happ"
+	"github.com/irazin/3x-ui-subpage/internal/generator/incy"
 	"github.com/irazin/3x-ui-subpage/internal/generator/linkgen"
 	"github.com/irazin/3x-ui-subpage/internal/generator/mihomo"
 	"github.com/irazin/3x-ui-subpage/internal/generator/xrayjson"
@@ -117,6 +119,8 @@ func main() {
 		XrayJSON:    xrayjson.New(db),
 		Clash:       clash.New(db),
 		Mihomo:      mihomo.New(db),
+		Happ:        happ.New(db),
+		Incy:        incy.New(db),
 		Theme:       theme.New(db, cfg.Theme.Active),
 		ThemeSlug:   cfg.Theme.Active,
 		Apps:        apps.New(db),

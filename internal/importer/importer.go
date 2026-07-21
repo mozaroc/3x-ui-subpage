@@ -46,6 +46,15 @@ func Import(db *sql.DB, webDir string) error {
 	if err := importYAMLTemplates(db, filepath.Join(webDir, "templates", "mihomo"), "mihomo", now); err != nil {
 		return err
 	}
+	if err := importYAMLTemplates(db, filepath.Join(webDir, "templates", "happ"), "happ", now); err != nil {
+		return err
+	}
+	if err := importYAMLTemplates(db, filepath.Join(webDir, "templates", "incy"), "incy", now); err != nil {
+		return err
+	}
+	if err := importRoutingRules(db, filepath.Join(webDir, "routing", "rules.json"), now); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -283,6 +292,61 @@ func importXrayTemplates(db *sql.DB, dir string, now int64) error {
 			if _, err := upsert.Exec("xray_link", "default", protocol, string(content), now); err != nil {
 				return fmt.Errorf("importer: insert xray_link default/%s: %w", protocol, err)
 			}
+		}
+	}
+
+	return tx.Commit()
+}
+
+type routingRuleJSON struct {
+	Profile   string `json:"profile"`
+	SortOrder int    `json:"sortOrder"`
+	Type      string `json:"type"`
+	Value     string `json:"value"`
+	Outbound  string `json:"outbound"`
+	Enabled   *bool  `json:"enabled"`
+}
+
+// importRoutingRules seeds routing_rules from a JSON array at path,
+// clearing existing rows first (same idempotent-reimport behavior as
+// importApplications) so re-running -import against the same web/ tree is
+// safe to use for refreshing seed content.
+func importRoutingRules(db *sql.DB, path string, now int64) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("importer: read %s: %w", path, err)
+	}
+
+	var rules []routingRuleJSON
+	if err := json.Unmarshal(data, &rules); err != nil {
+		return fmt.Errorf("importer: parse %s: %w", path, err)
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("importer: begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM routing_rules`); err != nil {
+		return fmt.Errorf("importer: clear routing_rules: %w", err)
+	}
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO routing_rules (profile, sort_order, type, value, outbound, enabled, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("importer: prepare insert: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, r := range rules {
+		enabled := 1
+		if r.Enabled != nil && !*r.Enabled {
+			enabled = 0
+		}
+		if _, err := stmt.Exec(r.Profile, r.SortOrder, r.Type, r.Value, r.Outbound, enabled, now); err != nil {
+			return fmt.Errorf("importer: insert routing rule %q/%q: %w", r.Profile, r.Type, err)
 		}
 	}
 

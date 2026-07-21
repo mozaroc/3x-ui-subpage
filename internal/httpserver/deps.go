@@ -15,6 +15,8 @@ import (
 	"github.com/irazin/3x-ui-subpage/internal/config"
 	"github.com/irazin/3x-ui-subpage/internal/domain"
 	"github.com/irazin/3x-ui-subpage/internal/generator/clash"
+	"github.com/irazin/3x-ui-subpage/internal/generator/happ"
+	"github.com/irazin/3x-ui-subpage/internal/generator/incy"
 	"github.com/irazin/3x-ui-subpage/internal/generator/linkgen"
 	"github.com/irazin/3x-ui-subpage/internal/generator/mihomo"
 	"github.com/irazin/3x-ui-subpage/internal/generator/xrayjson"
@@ -47,6 +49,13 @@ type YAMLGenerator interface {
 	Build(clients []domain.MatchedClient, profile string) (string, error)
 }
 
+// RawGenerator builds a config in a format this project asserts no
+// authoritative schema for (Happ, Incy) — the admin-editable template owns
+// the output bytes entirely.
+type RawGenerator interface {
+	Build(clients []domain.MatchedClient, profile string) (string, error)
+}
+
 // ThemeRenderer renders the HTML subscription page and serves the active
 // theme's static assets. Satisfied by *theme.Engine.
 type ThemeRenderer interface {
@@ -75,6 +84,8 @@ type Deps struct {
 	XrayJSON    XrayJSONGenerator
 	Clash       YAMLGenerator
 	Mihomo      YAMLGenerator
+	Happ        RawGenerator
+	Incy        RawGenerator
 	Theme       ThemeRenderer
 	ThemeSlug   string // active theme's slug, e.g. "default" — used to mount /assets/{slug}/...
 	Apps        AppCatalog
@@ -93,6 +104,8 @@ var (
 	_ XrayJSONGenerator  = (*xrayjson.Generator)(nil)
 	_ YAMLGenerator      = (*clash.Generator)(nil)
 	_ YAMLGenerator      = (*mihomo.Generator)(nil)
+	_ RawGenerator       = (*happ.Generator)(nil)
+	_ RawGenerator       = (*incy.Generator)(nil)
 	_ LinkGenerator      = (*linkgen.Generator)(nil)
 	_ Resolver           = (*resolver.Resolver)(nil)
 	_ ThemeRenderer      = (*theme.Engine)(nil)

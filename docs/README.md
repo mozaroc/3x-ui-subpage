@@ -50,6 +50,8 @@ changes via `sqlite3` directly.
 | `GET /sub/{subId}/xray.json` | Full xray-core client JSON config |
 | `GET /sub/{subId}/clash` | Clash YAML |
 | `GET /sub/{subId}/mihomo` | Mihomo YAML |
+| `GET /sub/{subId}/happ` | Happ config (admin-defined template, no built-in schema) |
+| `GET /sub/{subId}/incy` | Incy config (admin-defined template, no built-in schema) |
 | `GET /sub/{subId}/qr.png` \| `/qr.svg` | QR code for the subscription URL |
 | `GET /api/v1/subscription/{subId}` | JSON view of the resolved subscription |
 | `GET /api/v1/applications` | JSON application catalog |
@@ -108,9 +110,11 @@ per-subscriber template assignments. See
 
 ## Phase status
 
-Phases 1-3 are complete: 3x-ui API client, subscriber resolution, Xray
-share-link + full config generation, Clash/Mihomo YAML generation, HTML
-theme engine, JSON-derived application catalog, QR generation, per-subscriber
+Phases 1-4 are complete: 3x-ui API client, subscriber resolution, Xray
+share-link + full config generation, Clash/Mihomo YAML generation,
+Happ/Incy config generation with an admin-editable routing-rule engine
+(GEOIP/geosite/domains/regex/CIDR/process/DNS/custom rules), HTML theme
+engine, JSON-derived application catalog, QR generation, per-subscriber
 template profile assignment — all backed by SQLite with hot reload — plus a
-full admin web UI. Happ/Incy routing generators and write-back to 3x-ui are
+full admin web UI. Write-back to 3x-ui and multiple admin accounts are
 planned for later phases — see `ARCHITECTURE.md`'s "What's deferred" section.

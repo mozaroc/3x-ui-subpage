@@ -100,6 +100,8 @@ func testDeps(t *testing.T, sub domain.Subscription, resolveErr error) Deps {
 		XrayJSON:    fakeConfigGen{out: `{"ok":true}`},
 		Clash:       fakeConfigGen{out: "proxies: []\n"},
 		Mihomo:      fakeConfigGen{out: "proxies: []\n"},
+		Happ:        fakeConfigGen{out: `{"happ":true}`},
+		Incy:        fakeConfigGen{out: `{"incy":true}`},
 		Theme:       fakeTheme{static: map[string]string{}},
 		ThemeSlug:   "default",
 		Apps:        fakeApps{apps: []apps.App{{Name: "Test App", Deeplink: "test://{subscription}"}}},
@@ -170,6 +172,68 @@ func TestHandleSubscription_MihomoForMihomoUA(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+}
+
+func TestHandleSubscription_HappForHappUA(t *testing.T) {
+	srv := New(testDeps(t, sampleSubscription(), nil))
+	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc", nil)
+	req.Header.Set("User-Agent", "Happ/1.0")
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"happ":true`) {
+		t.Errorf("expected happ body, got: %s", rec.Body.String())
+	}
+}
+
+func TestHandleSubscription_IncyForIncyUA(t *testing.T) {
+	srv := New(testDeps(t, sampleSubscription(), nil))
+	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc", nil)
+	req.Header.Set("User-Agent", "Incy/2.0")
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"incy":true`) {
+		t.Errorf("expected incy body, got: %s", rec.Body.String())
+	}
+}
+
+func TestHandleHapp_ExplicitRoute(t *testing.T) {
+	srv := New(testDeps(t, sampleSubscription(), nil))
+	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc/happ", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"happ":true`) {
+		t.Errorf("expected happ body, got: %s", rec.Body.String())
+	}
+}
+
+func TestHandleIncy_ExplicitRoute(t *testing.T) {
+	srv := New(testDeps(t, sampleSubscription(), nil))
+	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc/incy", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"incy":true`) {
+		t.Errorf("expected incy body, got: %s", rec.Body.String())
 	}
 }
 

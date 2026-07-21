@@ -1,0 +1,25 @@
+{{define "page-routing-form"}}
+<h1>{{if .Data.IsNew}}New routing rule{{else}}Edit routing rule{{end}}</h1>
+{{if .Data.Error}}<div class="error">{{.Data.Error}}</div>{{end}}
+<div class="card">
+  <form method="post" action="{{if .Data.IsNew}}/admin/routing{{else}}/admin/routing/{{.Data.Rule.ID}}{{end}}">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <label>Profile</label>
+    <input type="text" name="profile" value="{{.Data.Rule.Profile}}" required>
+    <label>Type</label>
+    <select name="type">
+      {{range .Data.Types}}<option value="{{.}}" {{if eq . $.Data.Rule.Type}}selected{{end}}>{{.}}</option>{{end}}
+    </select>
+    <label>Value (e.g. a CIDR, geosite tag, domain, regex, process name...)</label>
+    <input type="text" name="value" value="{{.Data.Rule.Value}}" required>
+    <label>Outbound (e.g. direct, block, proxy, or a custom tag)</label>
+    <input type="text" name="outbound" value="{{.Data.Rule.Outbound}}">
+    <label>Sort order</label>
+    <input type="number" name="sort_order" value="{{.Data.Rule.SortOrder}}">
+    <label><input type="checkbox" name="enabled" value="1" {{if .Data.Rule.Enabled}}checked{{end}} style="width:auto; display:inline-block;"> Enabled</label>
+    <br><br>
+    <button class="btn btn--primary" type="submit">Save</button>
+    <a class="btn btn--secondary" href="/admin/routing">Cancel</a>
+  </form>
+</div>
+{{end}}

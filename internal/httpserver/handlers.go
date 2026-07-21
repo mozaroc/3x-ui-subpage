@@ -74,6 +74,10 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		s.writeYAML(w, sub, s.deps.Clash, "clash.yaml")
 	case formatMihomo:
 		s.writeYAML(w, sub, s.deps.Mihomo, "mihomo.yaml")
+	case formatHapp:
+		s.writeRaw(w, sub, s.deps.Happ, "happ.json")
+	case formatIncy:
+		s.writeRaw(w, sub, s.deps.Incy, "incy.json")
 	default:
 		s.writeXrayLinks(w, sub)
 	}
@@ -127,6 +131,22 @@ func (s *Server) handleMihomo(w http.ResponseWriter, r *http.Request) {
 	s.writeYAML(w, sub, s.deps.Mihomo, "mihomo.yaml")
 }
 
+func (s *Server) handleHapp(w http.ResponseWriter, r *http.Request) {
+	sub, ok := s.resolveOrFail(w, r)
+	if !ok {
+		return
+	}
+	s.writeRaw(w, sub, s.deps.Happ, "happ.json")
+}
+
+func (s *Server) handleIncy(w http.ResponseWriter, r *http.Request) {
+	sub, ok := s.resolveOrFail(w, r)
+	if !ok {
+		return
+	}
+	s.writeRaw(w, sub, s.deps.Incy, "incy.json")
+}
+
 func (s *Server) writeXrayLinks(w http.ResponseWriter, sub domain.Subscription) {
 	profile, ok := s.resolveProfile(w, sub.SubID)
 	if !ok {
@@ -158,6 +178,24 @@ func (s *Server) writeYAML(w http.ResponseWriter, sub domain.Subscription, gen Y
 	}
 	setSubscriptionUserinfo(w, sub)
 	w.Header().Set("Content-Type", "application/x-yaml; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	_, _ = w.Write([]byte(out))
+}
+
+func (s *Server) writeRaw(w http.ResponseWriter, sub domain.Subscription, gen RawGenerator, filename string) {
+	profile, ok := s.resolveProfile(w, sub.SubID)
+	if !ok {
+		return
+	}
+
+	out, err := gen.Build(sub.Clients, profile)
+	if err != nil {
+		s.deps.Logger.Error("render raw config failed", "sub_id", sub.SubID, "err", err)
+		http.Error(w, "failed to render config", http.StatusInternalServerError)
+		return
+	}
+	setSubscriptionUserinfo(w, sub)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	_, _ = w.Write([]byte(out))
 }

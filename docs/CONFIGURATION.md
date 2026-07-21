@@ -37,13 +37,27 @@ and this service's own public subscription URL.
   every file (`layout.html`, `partials/*.html`, `pages/subscription.html`,
   `static/**`). Editing a file's content or a theme's metadata takes effect
   on the next request — no restart.
-- **Templates** — the Xray-link/Xray-JSON/Clash/Mihomo generator templates,
-  keyed by `(format, profile, protocol)`. Create a new profile by saving a
-  template under a new profile name; a profile missing a template for a
-  given format/protocol falls back to `"default"`. Hot-reloaded.
+- **Templates** — the Xray-link/Xray-JSON/Clash/Mihomo/Happ/Incy generator
+  templates, keyed by `(format, profile, protocol)`. Create a new profile by
+  saving a template under a new profile name; a profile missing a template
+  for a given format/protocol falls back to `"default"`. Hot-reloaded.
+  **Happ and Incy templates are a special case**: those two clients have no
+  publicly-documented wire format this project asserts as authoritative, so
+  unlike Clash/Mihomo/Xray (whose dialect is well-known), the admin-authored
+  `happ`/`incy` templates fully control the output bytes with no schema
+  validation applied. Verify the shipped example template against your
+  installed client version before relying on it.
 - **Assignments** — which template profile each subscriber (`subId`) uses.
   Unassigned subscribers use `"default"`. Hot-reloaded — reassigning a
   subscriber changes what they're served on their very next request.
+- **Routing** — GEOIP/geosite/domain/domain-suffix/domain-keyword/regex/
+  CIDR/IP-range/process/protocol/port/DNS/custom rules, keyed by
+  `(profile, sort_order)`. Exposed to every generator template as `.Rules`
+  alongside `.Clients` — the Happ/Incy example templates render them into
+  a `rules` array; Clash/Mihomo/Xray templates can reference `.Rules` too if
+  you want to drive their `rules:`/routing sections from the same table
+  instead of hardcoding rules in those templates. A profile with no rules
+  of its own falls back to `"default"`. Hot-reloaded.
 
 Login is a single admin account (bcrypt password, server-side session,
 12h TTL, CSRF-protected forms, secure cookies). There's only one account —
@@ -73,7 +87,8 @@ CLI (or any SQLite client) if you'd rather script it than click through the
 UI — useful for bulk imports/exports or one-off automation:
 
 ```sql
--- tables: settings, applications, themes, theme_files, templates, assignments
+-- tables: settings, applications, themes, theme_files, templates,
+-- assignments, routing_rules
 INSERT INTO settings (key, value, updated_at) VALUES
   ('support', '{"telegram":"https://t.me/example"}', unixepoch());
 
@@ -82,6 +97,9 @@ INSERT INTO templates (format, profile, protocol, content, updated_at)
 
 INSERT INTO assignments (sub_id, profile, updated_at)
   VALUES ('the-subscribers-subid', 'gaming', unixepoch());
+
+INSERT INTO routing_rules (profile, sort_order, type, value, outbound, enabled, updated_at)
+  VALUES ('gaming', 0, 'domain_suffix', 'steampowered.com', 'direct', 1, unixepoch());
 ```
 
 The admin UI and direct SQL are just two ways of writing the same rows —

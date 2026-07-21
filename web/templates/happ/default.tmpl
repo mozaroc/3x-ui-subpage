@@ -1,0 +1,27 @@
+{
+  "_comment": "Example starting point for the Happ client config format. Happ has no publicly-documented wire schema this project asserts as authoritative -- verify this structure against your installed Happ client version and adjust freely; this template fully controls the output bytes.",
+  "outbounds": [
+{{range $i, $c := .Clients}}{{if $i}},
+{{end}}    {
+      "tag": "{{$c.Remark}}",
+      "protocol": "{{$c.Protocol}}",
+      "server": "{{$c.Server}}",
+      "port": {{$c.Port}},
+      "uuid": "{{$c.UUID}}",
+      "password": "{{$c.Password}}",
+      "network": "{{$c.Network}}",
+      "security": "{{$c.Security}}",
+      "sni": "{{$c.SNI}}"
+    }{{end}}
+  ],
+  "routing": {
+    "rules": [
+{{range $i, $r := .Rules}}{{if $i}},
+{{end}}      {
+        "type": "{{$r.Type}}",
+        "value": "{{$r.Value}}",
+        "outbound": "{{$r.Outbound}}"
+      }{{end}}
+    ]
+  }
+}

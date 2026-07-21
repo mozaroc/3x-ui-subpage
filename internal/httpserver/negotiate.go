@@ -9,6 +9,8 @@ const (
 	formatXray format = iota
 	formatClash
 	formatMihomo
+	formatHapp
+	formatIncy
 	formatHTML
 )
 
@@ -29,6 +31,10 @@ func detectFormat(userAgent string) format {
 		return formatMihomo
 	case strings.Contains(ua, "clash"), strings.Contains(ua, "stash"):
 		return formatClash
+	case strings.Contains(ua, "happ"):
+		return formatHapp
+	case strings.Contains(ua, "incy"):
+		return formatIncy
 	}
 
 	for _, tok := range browserTokens {

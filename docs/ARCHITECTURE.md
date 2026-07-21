@@ -58,6 +58,14 @@ tiny bootstrap file naming that database's path.
   - `xrayjson` — full xray-core client JSON config.
   - `clash` / `mihomo` — YAML configs (thin wrappers around the shared
     `yamlgen` rendering engine — same mechanics, different `format` string).
+  - `happ` / `incy` — thin wrappers around the shared `rawgen` rendering
+    engine, for the Happ and Incy clients. Unlike Clash/Mihomo/Xray, this
+    project has no verified, authoritative knowledge of either client's wire
+    format, so `rawgen` applies no output validation (no YAML/JSON parse
+    check) — the admin-authored template fully owns the output bytes, same
+    trust model as every other format's template but without an assumed
+    schema to validate against. Also injects `.Rules` (from
+    `internal/routing`) into the template context alongside `.Clients`.
   - Shared support packages: `tmplctx` (flattens a `MatchedClient` into the
     field set every template sees), `tmplcache` (loads+caches templates from
     the `templates` table keyed by `(format, profile, protocol)`, falling
@@ -67,6 +75,15 @@ tiny bootstrap file naming that database's path.
 - **`internal/templatestore`** — the admin-write counterpart to
   `tmplcache`'s hot-reloaded reads: plain CRUD over the `templates` table,
   used only by the admin UI.
+- **`internal/routing`** — administrator-editable routing rules (table
+  `routing_rules`): GEOIP, geosite, domain/domain-suffix/domain-keyword,
+  regex, CIDR, IP range, process, protocol, port, DNS, and custom rules,
+  keyed by `(profile, sort_order)` with the same "falls back to `default`"
+  convention as `assignment`/`tmplcache`. Consumed by generator templates
+  (currently `happ`/`incy`, but any format's template can reference
+  `.Rules`) so the routing-rule *data* lives in one structured table while
+  each client format's *template* decides how to render it into that
+  client's own syntax.
 - **`internal/apps`** — application catalog (table `applications`),
   hot-reloaded via `MAX(updated_at)`, deep-link placeholder rendering, plus
   `Create`/`Update`/`Delete`/`Get`/`ListAll` for the admin UI.
@@ -156,8 +173,7 @@ live) load once at startup from `LoadFromDB` and need a restart to pick up
 changes. The app catalog, themes, generator templates, and per-user
 assignments hot-reload per request with no restart.
 
-## What's deferred (phase 4+)
+## What's deferred (phase 5+)
 
-- Happ/Incy routing generators and a routing-rule template engine.
 - Write-back to 3x-ui (updating user info from this service).
 - Multiple admin accounts / role-based access (currently a single account).

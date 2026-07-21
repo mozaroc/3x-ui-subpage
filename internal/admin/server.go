@@ -19,6 +19,7 @@ import (
 	"github.com/irazin/3x-ui-subpage/internal/apps"
 	"github.com/irazin/3x-ui-subpage/internal/assignment"
 	"github.com/irazin/3x-ui-subpage/internal/ratelimit"
+	"github.com/irazin/3x-ui-subpage/internal/routing"
 	"github.com/irazin/3x-ui-subpage/internal/templatestore"
 	"github.com/irazin/3x-ui-subpage/internal/theme"
 )
@@ -33,6 +34,7 @@ type Server struct {
 	themes      *theme.AdminStore
 	templates   *templatestore.Store
 	assignments *assignment.Store
+	routing     *routing.Store
 
 	loginLimiter *ratelimit.Limiter
 }
@@ -48,6 +50,7 @@ func New(db *sql.DB, logger *slog.Logger) *Server {
 		themes:       theme.NewAdminStore(db),
 		templates:    templatestore.New(db),
 		assignments:  assignment.New(db),
+		routing:      routing.New(db),
 		loginLimiter: ratelimit.New(5, 5), // 5/min/IP on login specifically
 	}
 }
@@ -95,6 +98,13 @@ func (s *Server) Router() http.Handler {
 		r.Get("/assignments", s.handleAssignmentsList)
 		r.With(s.verifyCSRF).Post("/assignments", s.handleAssignmentSave)
 		r.With(s.verifyCSRF).Post("/assignments/{subID}/delete", s.handleAssignmentDelete)
+
+		r.Get("/routing", s.handleRoutingList)
+		r.Get("/routing/new", s.handleRoutingForm)
+		r.With(s.verifyCSRF).Post("/routing", s.handleRoutingCreate)
+		r.Get("/routing/{id}/edit", s.handleRoutingForm)
+		r.With(s.verifyCSRF).Post("/routing/{id}", s.handleRoutingUpdate)
+		r.With(s.verifyCSRF).Post("/routing/{id}/delete", s.handleRoutingDelete)
 	})
 
 	return r

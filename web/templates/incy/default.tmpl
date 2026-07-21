@@ -1,0 +1,25 @@
+{
+  "_comment": "Example starting point for the Incy client config format. Incy has no publicly-documented wire schema this project asserts as authoritative -- verify this structure against your installed Incy client version and adjust freely; this template fully controls the output bytes.",
+  "servers": [
+{{range $i, $c := .Clients}}{{if $i}},
+{{end}}    {
+      "name": "{{$c.Remark}}",
+      "protocol": "{{$c.Protocol}}",
+      "address": "{{$c.Server}}",
+      "port": {{$c.Port}},
+      "id": "{{$c.UUID}}",
+      "password": "{{$c.Password}}",
+      "transport": "{{$c.Network}}",
+      "tls": "{{$c.Security}}",
+      "sni": "{{$c.SNI}}"
+    }{{end}}
+  ],
+  "rules": [
+{{range $i, $r := .Rules}}{{if $i}},
+{{end}}    {
+      "type": "{{$r.Type}}",
+      "match": "{{$r.Value}}",
+      "action": "{{$r.Outbound}}"
+    }{{end}}
+  ]
+}

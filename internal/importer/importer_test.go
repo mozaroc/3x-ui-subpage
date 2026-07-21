@@ -95,6 +95,8 @@ func TestImport_TemplatesRoundTrip(t *testing.T) {
 		{"xray_json", "default", ""},
 		{"clash", "default", ""},
 		{"mihomo", "default", ""},
+		{"happ", "default", ""},
+		{"incy", "default", ""},
 	}
 
 	for _, c := range cases {
@@ -133,5 +135,28 @@ func TestImport_IsRerunnable(t *testing.T) {
 	}
 	if templateCount != 1 {
 		t.Errorf("expected exactly 1 clash/default row after re-import, got %d", templateCount)
+	}
+
+	var ruleCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM routing_rules`).Scan(&ruleCount); err != nil {
+		t.Fatalf("count routing_rules: %v", err)
+	}
+	if ruleCount == 0 {
+		t.Error("expected routing_rules to survive a second import without duplicating")
+	}
+}
+
+func TestImport_RoutingRulesRoundTrip(t *testing.T) {
+	db := openTestDB(t)
+	if err := Import(db, repoWebDir); err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM routing_rules WHERE profile = 'default'`).Scan(&count); err != nil {
+		t.Fatalf("count routing_rules: %v", err)
+	}
+	if count == 0 {
+		t.Fatal("expected seeded routing rules for the default profile")
 	}
 }

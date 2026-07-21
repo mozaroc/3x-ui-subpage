@@ -83,6 +83,16 @@ sudo systemctl enable --now subscription-service
 (Copy this repo's `web/` directory to `/opt/subscription-service/web` first
 if you want the `-import` step above to have something to seed from.)
 
+## CI / Releases
+
+- `.github/workflows/build.yml` — on every push/PR to `main`: gofmt check,
+  `go vet`, `go build`, `go test`, then cross-compiles both binaries and
+  uploads them as a build artifact.
+- `.github/workflows/release.yml` — on pushing a tag matching `v*.*.*`
+  (or manually via workflow_dispatch): runs tests, cross-compiles, generates
+  checksums, and publishes a GitHub Release with both binaries attached.
+  Cut a release with `git tag v1.0.0 && git push origin v1.0.0`.
+
 ## Docs
 
 - [Configuration Guide](CONFIGURATION.md)

@@ -1,0 +1,23 @@
+{
+  "name": "Default",
+  "description": "Default subscription page theme",
+  "logo": "/assets/default/img/logo.svg",
+  "favicon": "/assets/default/img/favicon.png",
+  "colors": {
+    "background": "#0f1115",
+    "surface": "#171a21",
+    "card": "#1d212b",
+    "text": "#e8eaed",
+    "muted": "#9aa0ac",
+    "primary": "#5b8cff",
+    "primary-contrast": "#ffffff",
+    "success": "#3ddc84",
+    "warning": "#ffc857",
+    "danger": "#ff5c5c",
+    "border": "#2a2f3a"
+  },
+  "fonts": {
+    "body": "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    "mono": "'JetBrains Mono', ui-monospace, monospace"
+  }
+}

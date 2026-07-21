@@ -1,0 +1,45 @@
+{{define "content"}}
+<section class="card account-card">
+  <div class="account-card__row">
+    <div>
+      <h1 class="account-card__username">{{.Data.Username}}</h1>
+      <span class="badge badge--{{.Data.Status}}">{{.Data.Status}}</span>
+    </div>
+    <div class="account-card__expiry">
+      <label>Expires</label>
+      <span>{{formatDate .Data.ExpiresAt}}</span>
+    </div>
+  </div>
+
+  <div class="traffic">
+    <div class="traffic__bar">
+      <div class="traffic__bar-fill" style="width: {{percent .Data.TrafficUsed .Data.TrafficTotal}}%"></div>
+    </div>
+    <div class="traffic__labels">
+      <span>{{bytesHuman .Data.TrafficUsed}} used</span>
+      <span>{{bytesHuman .Data.TrafficRemaining}} remaining</span>
+    </div>
+  </div>
+</section>
+
+{{template "qr-block" .}}
+
+<section class="card downloads">
+  <h2>Configuration downloads</h2>
+  <div class="downloads__actions">
+    <a class="btn btn--secondary" href="{{.Data.DownloadXray}}">Xray (links)</a>
+    <a class="btn btn--secondary" href="{{.Data.DownloadXrayJSON}}">Xray (full config)</a>
+    <a class="btn btn--secondary" href="{{.Data.DownloadClash}}">Clash</a>
+    <a class="btn btn--secondary" href="{{.Data.DownloadMihomo}}">Mihomo</a>
+  </div>
+</section>
+
+<section class="apps">
+  <h2>Applications</h2>
+  <div class="apps__grid">
+    {{range .Data.Apps}}{{template "app-card" (dict "Theme" $.Theme "App" .)}}{{end}}
+  </div>
+</section>
+
+{{template "support-section" .}}
+{{end}}

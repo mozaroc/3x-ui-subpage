@@ -1,0 +1,101 @@
+// Package httpserver wires the resolver, generators, QR renderer, theme
+// engine, app catalog, and profile assignment store into an HTTP API. It is
+// the only layer aware of net/http — everything it calls is plain,
+// independently testable Go.
+package httpserver
+
+import (
+	"context"
+	"io"
+	"log/slog"
+	"net/http"
+
+	"github.com/irazin/3x-ui-subpage/internal/apps"
+	"github.com/irazin/3x-ui-subpage/internal/assignment"
+	"github.com/irazin/3x-ui-subpage/internal/config"
+	"github.com/irazin/3x-ui-subpage/internal/domain"
+	"github.com/irazin/3x-ui-subpage/internal/generator/clash"
+	"github.com/irazin/3x-ui-subpage/internal/generator/linkgen"
+	"github.com/irazin/3x-ui-subpage/internal/generator/mihomo"
+	"github.com/irazin/3x-ui-subpage/internal/generator/xrayjson"
+	"github.com/irazin/3x-ui-subpage/internal/resolver"
+	"github.com/irazin/3x-ui-subpage/internal/theme"
+)
+
+// Resolver resolves a subscription token into a domain.Subscription.
+type Resolver interface {
+	Resolve(ctx context.Context, subID string) (domain.Subscription, error)
+}
+
+// LinkGenerator builds Xray share links / the base64 subscription body for
+// a subscriber's assigned profile.
+type LinkGenerator interface {
+	BuildLink(mc domain.MatchedClient, profile string) (string, error)
+	BuildSubscription(clients []domain.MatchedClient, profile string) (string, error)
+}
+
+// XrayJSONGenerator builds the full xray-core client JSON config for a
+// subscriber's assigned profile.
+type XrayJSONGenerator interface {
+	Build(clients []domain.MatchedClient, profile string) (string, error)
+}
+
+// YAMLGenerator builds a Clash/Mihomo config for a subscriber's assigned
+// profile (satisfied by both generator/clash.Generator and
+// generator/mihomo.Generator).
+type YAMLGenerator interface {
+	Build(clients []domain.MatchedClient, profile string) (string, error)
+}
+
+// ThemeRenderer renders the HTML subscription page and serves the active
+// theme's static assets. Satisfied by *theme.Engine.
+type ThemeRenderer interface {
+	Render(w io.Writer, data any) error
+	ServeStatic(w http.ResponseWriter, r *http.Request, path string) (bool, error)
+}
+
+// AppCatalog lists the administrator-configured application catalog.
+// Satisfied by *apps.Catalog.
+type AppCatalog interface {
+	List() ([]apps.App, error)
+}
+
+// AssignmentResolver resolves which template profile a subscriber is
+// assigned to. Satisfied by *assignment.Store.
+type AssignmentResolver interface {
+	Resolve(subID string) (string, error)
+}
+
+// Deps holds every collaborator the HTTP layer needs.
+type Deps struct {
+	Logger *slog.Logger
+
+	Resolver    Resolver
+	LinkGen     LinkGenerator
+	XrayJSON    XrayJSONGenerator
+	Clash       YAMLGenerator
+	Mihomo      YAMLGenerator
+	Theme       ThemeRenderer
+	ThemeSlug   string // active theme's slug, e.g. "default" — used to mount /assets/{slug}/...
+	Apps        AppCatalog
+	Assignments AssignmentResolver
+
+	QRDefaults config.QRConfig
+	PublicURL  string
+	Support    config.SupportConfig
+	Security   config.SecurityConfig
+}
+
+// compile-time interface satisfaction checks for the concrete generator
+// types, so a signature drift fails the build immediately rather than at
+// wiring time in main.go.
+var (
+	_ XrayJSONGenerator  = (*xrayjson.Generator)(nil)
+	_ YAMLGenerator      = (*clash.Generator)(nil)
+	_ YAMLGenerator      = (*mihomo.Generator)(nil)
+	_ LinkGenerator      = (*linkgen.Generator)(nil)
+	_ Resolver           = (*resolver.Resolver)(nil)
+	_ ThemeRenderer      = (*theme.Engine)(nil)
+	_ AppCatalog         = (*apps.Catalog)(nil)
+	_ AssignmentResolver = (*assignment.Store)(nil)
+)

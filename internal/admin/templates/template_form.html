@@ -1,0 +1,12 @@
+{{define "page-template-form"}}
+<h1>{{.Data.Row.Format}} / {{.Data.Row.Profile}} / {{if .Data.Row.Protocol}}{{.Data.Row.Protocol}}{{else}}—{{end}}</h1>
+{{if .Data.Error}}<div class="error">{{.Data.Error}}</div>{{end}}
+<div class="card">
+  <form method="post" action="/admin/templates/{{.Data.Row.Format}}/{{.Data.Row.Profile}}/{{if .Data.Row.Protocol}}{{.Data.Row.Protocol}}{{else}}-{{end}}">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <textarea name="content" spellcheck="false" style="min-height:420px">{{.Data.Row.Content}}</textarea>
+    <button class="btn btn--primary" type="submit">Save</button>
+    <a class="btn btn--secondary" href="/admin/templates">Back to list</a>
+  </form>
+</div>
+{{end}}

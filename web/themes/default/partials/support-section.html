@@ -1,0 +1,12 @@
+{{define "support-section"}}
+<section class="card support-section">
+  <h2>Need help?</h2>
+  <div class="support-section__links">
+    {{if .Data.Support.Telegram}}<a class="btn btn--secondary" href="{{.Data.Support.Telegram}}" target="_blank" rel="noopener">Telegram</a>{{end}}
+    {{if .Data.Support.Discord}}<a class="btn btn--secondary" href="{{.Data.Support.Discord}}" target="_blank" rel="noopener">Discord</a>{{end}}
+    {{if .Data.Support.Email}}<a class="btn btn--secondary" href="mailto:{{.Data.Support.Email}}">Email</a>{{end}}
+    {{if .Data.Support.Website}}<a class="btn btn--secondary" href="{{.Data.Support.Website}}" target="_blank" rel="noopener">Website</a>{{end}}
+    {{if .Data.Support.Custom}}<a class="btn btn--secondary" href="{{.Data.Support.Custom}}" target="_blank" rel="noopener">Support</a>{{end}}
+  </div>
+</section>
+{{end}}

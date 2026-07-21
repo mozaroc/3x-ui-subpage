@@ -1,0 +1,26 @@
+# 3x-ui Subscription Service — bootstrap file.
+#
+# This is the ONLY thing read from disk. It exists purely to answer one
+# question before the database can be opened: where is it? Every other
+# setting (xui credentials, subscription URL, support contacts, security,
+# logging, app catalog, themes, generator templates, per-user template
+# assignments) lives in this SQLite database instead.
+#
+# Copy this to bootstrap.yaml, point database.path wherever you want the
+# file to live, then either:
+#   - run once with -import /path/to/web to seed it from the example
+#     applications/themes/templates checked into this repo's web/ tree, or
+#   - populate the "settings"/"applications"/"themes"/"theme_files"/
+#     "templates"/"assignments" tables yourself (there's no admin UI yet —
+#     use the sqlite3 CLI; see docs/CONFIGURATION.md).
+#
+# At minimum, after seeding, you still need to INSERT the "xui" and
+# "subscription" rows into the settings table yourself — there's no safe
+# default for panel credentials or your public subscription URL:
+#
+#   INSERT INTO settings (key, value, updated_at) VALUES
+#     ('xui', '{"base_url":"http://127.0.0.1:2053","username":"admin","password":"changeme"}', unixepoch()),
+#     ('subscription', '{"public_url":"https://sub.example.com","server_host":"vpn.example.com"}', unixepoch());
+
+database:
+  path: "/var/lib/subscription-service/data.db"

@@ -1,0 +1,108 @@
+package admin
+
+import (
+	"context"
+	"net/http"
+
+	"github.com/irazin/3x-ui-subpage/internal/adminauth"
+	"github.com/irazin/3x-ui-subpage/internal/ratelimit"
+)
+
+const sessionCookieName = "admin_session"
+
+type ctxKey int
+
+const sessionCtxKey ctxKey = 0
+
+func sessionFromContext(r *http.Request) (adminauth.Session, bool) {
+	sess, ok := r.Context().Value(sessionCtxKey).(adminauth.Session)
+	return sess, ok
+}
+
+// requireSession redirects to /admin/login unless a valid, non-expired
+// session cookie is present, injecting the session into the request
+// context for downstream handlers.
+func (s *Server) requireSession(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie(sessionCookieName)
+		if err != nil {
+			http.Redirect(w, r, "/admin/login", http.StatusFound)
+			return
+		}
+
+		sess, err := s.auth.GetSession(cookie.Value)
+		if err != nil {
+			http.Redirect(w, r, "/admin/login", http.StatusFound)
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), sessionCtxKey, sess)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// verifyCSRF rejects any POST whose "csrf_token" form field doesn't match
+// the current session's token (synchronizer token pattern). Must run after
+// requireSession.
+func (s *Server) verifyCSRF(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sess, ok := sessionFromContext(r)
+		if !ok {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		if r.FormValue("csrf_token") != sess.CSRFToken {
+			s.logger.Warn("admin: csrf token mismatch", "path", r.URL.Path, "remote_ip", ratelimit.ClientIP(r))
+			http.Error(w, "forbidden: invalid csrf token", http.StatusForbidden)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// secureHeaders applies the standard defensive response headers to every
+// admin request.
+func secureHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "no-referrer")
+		h.Set("Content-Security-Policy", "default-src 'self'")
+		if r.TLS != nil {
+			h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func setSessionCookie(w http.ResponseWriter, r *http.Request, sess adminauth.Session) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    sess.ID,
+		Path:     "/admin",
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteLaxMode,
+		Expires:  sess.ExpiresAt,
+	})
+}
+
+func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    "",
+		Path:     "/admin",
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+}

@@ -1,0 +1,70 @@
+{
+  "applications": [
+    {
+      "name": "Hiddify",
+      "icon": "hiddify.png",
+      "description": "Cross-platform client with a friendly UI, recommended for most users",
+      "platforms": ["Windows", "macOS", "Linux", "Android", "iOS"],
+      "download": "https://github.com/hiddify/hiddify-next/releases",
+      "deeplink": "hiddify://install-config?url={subscription}",
+      "instructions": "Open the app, tap + then \"Add from URL\", or open this link directly.",
+      "visible": true,
+      "sortOrder": 1
+    },
+    {
+      "name": "Clash Verge",
+      "icon": "clash-verge.png",
+      "description": "Fast, modern Clash Meta client for desktop",
+      "platforms": ["Windows", "macOS", "Linux"],
+      "download": "https://github.com/clash-verge-rev/clash-verge-rev/releases",
+      "deeplink": "clash://install-config?url={subscription}",
+      "instructions": "Import the subscription URL from Profiles > Import.",
+      "visible": true,
+      "sortOrder": 2
+    },
+    {
+      "name": "v2rayNG",
+      "icon": "v2rayng.png",
+      "description": "Popular Xray/V2Ray client for Android",
+      "platforms": ["Android"],
+      "download": "https://play.google.com/store/apps/details?id=com.v2ray.ang",
+      "deeplink": "v2rayng://install-config?url={subscription}",
+      "instructions": "Tap the + button, choose \"Import config from URL\".",
+      "visible": true,
+      "sortOrder": 3
+    },
+    {
+      "name": "Shadowrocket",
+      "icon": "shadowrocket.png",
+      "description": "Popular proxy client for iOS",
+      "platforms": ["iOS"],
+      "download": "https://apps.apple.com/app/shadowrocket/id932747118",
+      "deeplink": "shadowrocket://add/sub://{subscription}",
+      "instructions": "Tap the link on your iOS device to add the subscription automatically.",
+      "visible": true,
+      "sortOrder": 4
+    },
+    {
+      "name": "NekoBox",
+      "icon": "nekobox.png",
+      "description": "Xray/sing-box client for Android",
+      "platforms": ["Android"],
+      "download": "https://github.com/MatsuriDayo/NekoBoxForAndroid/releases",
+      "deeplink": "sn://subscription?url={subscription}",
+      "instructions": "Add a profile group from URL in the app's Profiles tab.",
+      "visible": true,
+      "sortOrder": 5
+    },
+    {
+      "name": "Mihomo Party",
+      "icon": "mihomo-party.png",
+      "description": "Desktop GUI for the Mihomo (Clash Meta) core",
+      "platforms": ["Windows", "macOS", "Linux"],
+      "download": "https://github.com/mihomo-party-org/mihomo-party/releases",
+      "deeplink": "clash://install-config?url={subscription}",
+      "instructions": "Import the subscription URL from the Profiles page.",
+      "visible": true,
+      "sortOrder": 6
+    }
+  ]
+}

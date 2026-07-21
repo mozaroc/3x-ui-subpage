@@ -1,0 +1,56 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — 3x-ui Subscription Service</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1115; color: #e8eaed; }
+    a { color: #5b8cff; }
+    .nav { background: #171a21; border-bottom: 1px solid #2a2f3a; padding: 12px 20px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+    .nav a { text-decoration: none; color: #e8eaed; font-size: 0.9rem; }
+    .nav a:hover { color: #5b8cff; }
+    .nav form { margin-left: auto; }
+    .container { max-width: 900px; margin: 0 auto; padding: 24px 20px; }
+    .card { background: #1d212b; border: 1px solid #2a2f3a; border-radius: 10px; padding: 20px; margin-bottom: 20px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #2a2f3a; font-size: 0.9rem; }
+    th { color: #9aa0ac; font-weight: 600; }
+    input[type=text], input[type=password], input[type=number], textarea, select {
+      width: 100%; padding: 8px 10px; margin-bottom: 12px; background: #171a21; border: 1px solid #2a2f3a;
+      border-radius: 6px; color: #e8eaed; font-family: inherit; font-size: 0.9rem;
+    }
+    textarea { font-family: ui-monospace, monospace; min-height: 240px; }
+    label { display: block; font-size: 0.8rem; color: #9aa0ac; margin-bottom: 4px; }
+    .btn { display: inline-block; padding: 7px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 0.85rem; text-decoration: none; }
+    .btn--primary { background: #5b8cff; color: #fff; }
+    .btn--danger { background: #ff5c5c; color: #2a0505; }
+    .btn--secondary { background: #171a21; color: #e8eaed; border: 1px solid #2a2f3a; }
+    .row { display: flex; gap: 8px; align-items: center; }
+    .error { background: #3a1414; border: 1px solid #ff5c5c; color: #ffb3b3; padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 0.9rem; }
+    h1 { font-size: 1.3rem; } h2 { font-size: 1.05rem; color: #9aa0ac; }
+  </style>
+</head>
+<body>
+{{if .Username}}
+<nav class="nav">
+  <a href="/admin/">Dashboard</a>
+  <a href="/admin/settings">Settings</a>
+  <a href="/admin/applications">Applications</a>
+  <a href="/admin/themes">Themes</a>
+  <a href="/admin/templates">Templates</a>
+  <a href="/admin/assignments">Assignments</a>
+  <form method="post" action="/admin/logout">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <button class="btn btn--secondary" type="submit">Logout ({{.Username}})</button>
+  </form>
+</nav>
+{{end}}
+<main class="container">
+{{.Body}}
+</main>
+</body>
+</html>
+{{end}}

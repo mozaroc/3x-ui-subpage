@@ -1,0 +1,12 @@
+{{define "page-theme-file-edit"}}
+<h1>{{.Data.Slug}} / {{.Data.Path}}</h1>
+{{if .Data.Error}}<div class="error">{{.Data.Error}}</div>{{end}}
+<div class="card">
+  <form method="post" action="/admin/themes/{{.Data.Slug}}/files/{{.Data.Path}}">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <textarea name="content" spellcheck="false" style="min-height:420px">{{.Data.Content}}</textarea>
+    <button class="btn btn--primary" type="submit">Save</button>
+    <a class="btn btn--secondary" href="/admin/themes/{{.Data.Slug}}">Back to theme</a>
+  </form>
+</div>
+{{end}}

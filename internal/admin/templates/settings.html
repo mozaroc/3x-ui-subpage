@@ -1,0 +1,14 @@
+{{define "page-settings"}}
+<h1>Settings</h1>
+{{if .Data.Error}}<div class="error">{{.Data.Error}}</div>{{end}}
+{{range .Data.Rows}}
+<div class="card">
+  <h2>{{.Key}}</h2>
+  <form method="post" action="/admin/settings/{{.Key}}">
+    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+    <textarea name="value" spellcheck="false">{{.Value}}</textarea>
+    <button class="btn btn--primary" type="submit">Save</button>
+  </form>
+</div>
+{{end}}
+{{end}}

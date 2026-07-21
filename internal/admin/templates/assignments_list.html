@@ -1,0 +1,32 @@
+{{define "page-assignments-list"}}
+<h1>Assignments</h1>
+{{if .Data.Error}}<div class="error">{{.Data.Error}}</div>{{end}}
+<div class="card">
+  <h2>Assign a subscriber to a template profile</h2>
+  <form method="post" action="/admin/assignments">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <label>Subscription ID (subId)</label>
+    <input type="text" name="sub_id" required>
+    <label>Profile</label>
+    <input type="text" name="profile" value="default" required>
+    <button class="btn btn--primary" type="submit">Save</button>
+  </form>
+</div>
+<div class="card">
+  <table>
+    <tr><th>Sub ID</th><th>Profile</th><th></th></tr>
+    {{range .Data.Assignments}}
+    <tr>
+      <td>{{.SubID}}</td>
+      <td>{{.Profile}}</td>
+      <td>
+        <form method="post" action="/admin/assignments/{{.SubID}}/delete" onsubmit="return confirm('Remove assignment for {{.SubID}}?');">
+          <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+          <button class="btn btn--danger" type="submit">Remove</button>
+        </form>
+      </td>
+    </tr>
+    {{end}}
+  </table>
+</div>
+{{end}}

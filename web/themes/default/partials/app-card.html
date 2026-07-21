@@ -1,0 +1,16 @@
+{{define "app-card"}}
+<div class="app-card">
+  <img class="app-card__icon" src="/assets/{{.Theme.Slug}}/img/apps/{{.App.Icon}}" alt="{{.App.Name}}">
+  <div class="app-card__body">
+    <h3 class="app-card__name">{{.App.Name}}</h3>
+    <p class="app-card__description">{{.App.Description}}</p>
+    <div class="app-card__platforms">
+      {{range .App.Platforms}}<span class="tag">{{.}}</span>{{end}}
+    </div>
+    <div class="app-card__actions">
+      {{if .App.Deeplink}}<a class="btn btn--primary" href="{{.App.Deeplink}}">Install</a>{{end}}
+      {{if .App.Download}}<a class="btn btn--secondary" href="{{.App.Download}}" target="_blank" rel="noopener">Download</a>{{end}}
+    </div>
+  </div>
+</div>
+{{end}}

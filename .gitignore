@@ -1,0 +1,7 @@
+/dist/
+/bootstrap.yaml
+*.db
+*.db-wal
+*.db-shm
+*.log
+/.claude/

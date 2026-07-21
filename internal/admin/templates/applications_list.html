@@ -1,0 +1,27 @@
+{{define "page-applications-list"}}
+<h1>Applications</h1>
+{{if .Data.Error}}<div class="error">{{.Data.Error}}</div>{{end}}
+<div class="card">
+  <a class="btn btn--primary" href="/admin/applications/new">+ New application</a>
+</div>
+<div class="card">
+  <table>
+    <tr><th>Order</th><th>Name</th><th>Visible</th><th>Platforms</th><th></th></tr>
+    {{range .Data.Apps}}
+    <tr>
+      <td>{{.SortOrder}}</td>
+      <td>{{.Name}}</td>
+      <td>{{if .Visible}}yes{{else}}no{{end}}</td>
+      <td>{{range .Platforms}}{{.}} {{end}}</td>
+      <td class="row">
+        <a class="btn btn--secondary" href="/admin/applications/{{.ID}}/edit">Edit</a>
+        <form method="post" action="/admin/applications/{{.ID}}/delete" onsubmit="return confirm('Delete {{.Name}}?');">
+          <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+          <button class="btn btn--danger" type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {{end}}
+  </table>
+</div>
+{{end}}

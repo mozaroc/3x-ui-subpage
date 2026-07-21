@@ -1,0 +1,36 @@
+{
+  "log": {"loglevel": "warning"},
+  "dns": {"servers": ["1.1.1.1", "8.8.8.8"]},
+  "inbounds": [
+    {"tag": "socks-in", "port": 10808, "listen": "127.0.0.1", "protocol": "socks", "settings": {"udp": true}},
+    {"tag": "http-in", "port": 10809, "listen": "127.0.0.1", "protocol": "http"}
+  ],
+  "outbounds": [
+{{range $i, $c := .Clients}}{{if $i}},
+{{end}}    {
+      "tag": "proxy-{{$i}}",
+      "protocol": "{{$c.Protocol}}",
+      "settings": {
+{{if eq $c.Protocol "vless"}}        "vnext": [{"address": "{{$c.Server}}", "port": {{$c.Port}}, "users": [{"id": "{{$c.UUID}}", "encryption": "none"{{if $c.Flow}}, "flow": "{{$c.Flow}}"{{end}}}]}]
+{{else if eq $c.Protocol "vmess"}}        "vnext": [{"address": "{{$c.Server}}", "port": {{$c.Port}}, "users": [{"id": "{{$c.UUID}}", "alterId": 0}]}]
+{{else if eq $c.Protocol "trojan"}}        "servers": [{"address": "{{$c.Server}}", "port": {{$c.Port}}, "password": "{{$c.Password}}"}]
+{{else if eq $c.Protocol "shadowsocks"}}        "servers": [{"address": "{{$c.Server}}", "port": {{$c.Port}}, "method": "{{$c.Method}}", "password": "{{$c.Password}}"}]
+{{end}}      },
+      "streamSettings": {
+        "network": "{{$c.Network}}",
+        "security": "{{$c.Security}}"
+{{if eq $c.Security "tls"}}        ,"tlsSettings": {"serverName": "{{$c.SNI}}", "fingerprint": "{{$c.Fingerprint}}"{{if $c.ALPN}}, "alpn": ["{{$c.ALPN}}"]{{end}}}
+{{else if eq $c.Security "reality"}}        ,"realitySettings": {"serverName": "{{$c.SNI}}", "publicKey": "{{$c.PublicKey}}", "shortId": "{{$c.ShortID}}", "fingerprint": "{{$c.Fingerprint}}"{{if $c.SpiderX}}, "spiderX": "{{$c.SpiderX}}"{{end}}}
+{{end}}{{if eq $c.Network "ws"}}        ,"wsSettings": {"path": "{{$c.Path}}", "headers": {"Host": "{{$c.Host}}"}}
+{{else if eq $c.Network "grpc"}}        ,"grpcSettings": {"serviceName": "{{$c.ServiceName}}"}
+{{end}}      }
+    }
+{{end}}
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {"type": "field", "outboundTag": "proxy-0", "network": "tcp,udp"}
+    ]
+  }
+}

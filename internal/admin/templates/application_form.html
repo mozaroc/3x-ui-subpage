@@ -1,0 +1,29 @@
+{{define "page-application-form"}}
+<h1>{{if .Data.IsNew}}New application{{else}}Edit application{{end}}</h1>
+{{if .Data.Error}}<div class="error">{{.Data.Error}}</div>{{end}}
+<div class="card">
+  <form method="post" action="{{if .Data.IsNew}}/admin/applications{{else}}/admin/applications/{{.Data.App.ID}}{{end}}">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <label>Name</label>
+    <input type="text" name="name" value="{{.Data.App.Name}}" required>
+    <label>Icon (filename)</label>
+    <input type="text" name="icon" value="{{.Data.App.Icon}}">
+    <label>Description</label>
+    <input type="text" name="description" value="{{.Data.App.Description}}">
+    <label>Platforms (comma-separated)</label>
+    <input type="text" name="platforms" value="{{.Data.PlatformsCSV}}" placeholder="Windows, macOS, Linux">
+    <label>Download URL</label>
+    <input type="text" name="download" value="{{.Data.App.Download}}">
+    <label>Deeplink template (supports {subscription}, {profileTitle})</label>
+    <input type="text" name="deeplink" value="{{.Data.App.Deeplink}}">
+    <label>Instructions</label>
+    <input type="text" name="instructions" value="{{.Data.App.Instructions}}">
+    <label>Sort order</label>
+    <input type="number" name="sort_order" value="{{.Data.App.SortOrder}}">
+    <label><input type="checkbox" name="visible" value="1" {{if .Data.App.Visible}}checked{{end}} style="width:auto; display:inline-block;"> Visible</label>
+    <br><br>
+    <button class="btn btn--primary" type="submit">Save</button>
+    <a class="btn btn--secondary" href="/admin/applications">Cancel</a>
+  </form>
+</div>
+{{end}}

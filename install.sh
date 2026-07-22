@@ -433,6 +433,14 @@ append_location_block() {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
 
+        # The app gzips its own responses whenever it sees an incoming
+        # Accept-Encoding: gzip (which every browser sends) — and
+        # sub_filter can't rewrite a gzip-compressed body, it only ever
+        # sees plaintext. Blank the header on this leg so the app always
+        # answers uncompressed; nginx's own gzip module (already on
+        # globally) still compresses what actually reaches the browser.
+        proxy_set_header Accept-Encoding "";
+
         proxy_cookie_path /admin /__RANDOM_PATH__/admin;
         proxy_redirect / /__RANDOM_PATH__/;
 
@@ -643,7 +651,15 @@ main() {
   install_files
 
   gather_config
-  resolve_random_path
+
+  # Resolves (or reuses, on a re-run) RANDOM_PATH as a side effect — the
+  # single source of truth for it, so PUBLIC_URL below and the actual
+  # nginx config can never disagree on which random path is live.
+  if [[ "$MODE" == "dedicated" ]]; then
+    configure_nginx_dedicated
+  else
+    configure_nginx_panel
+  fi
   PUBLIC_URL="https://${DOMAIN}/${RANDOM_PATH}"
 
   write_bootstrap_config
@@ -651,12 +667,6 @@ main() {
   seed_settings
   create_admin
   fix_permissions
-
-  if [[ "$MODE" == "dedicated" ]]; then
-    configure_nginx_dedicated
-  else
-    configure_nginx_panel
-  fi
 
   install_systemd_unit
   verify_install

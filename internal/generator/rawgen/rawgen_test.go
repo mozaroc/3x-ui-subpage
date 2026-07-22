@@ -73,8 +73,8 @@ func TestBuild_IncludesClientsAndRules(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if !strings.Contains(out, `"name":"node-1"`) {
-		t.Errorf("expected client in output, got: %s", out)
+	if !strings.Contains(out, `"name":"node-1 + node-1"`) {
+		t.Errorf("expected combined inbound+client name in output, got: %s", out)
 	}
 	if !strings.Contains(out, `"type":"geoip"`) {
 		t.Errorf("expected routing rule in output, got: %s", out)

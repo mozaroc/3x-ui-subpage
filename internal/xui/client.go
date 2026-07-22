@@ -175,6 +175,16 @@ func (c *Client) ListInbounds(ctx context.Context) ([]Inbound, error) {
 	return inbounds, nil
 }
 
+// ListHosts fetches every configured Host group across every inbound in one
+// call (confirmed against a live 3.5.0 instance).
+func (c *Client) ListHosts(ctx context.Context) ([]HostGroup, error) {
+	var hosts []HostGroup
+	if err := c.doJSON(ctx, http.MethodGet, "/panel/api/hosts/list", &hosts); err != nil {
+		return nil, err
+	}
+	return hosts, nil
+}
+
 // addClientRequest is the POST body for /panel/api/clients/add.
 type addClientRequest struct {
 	Client     ManagedClient `json:"client"`

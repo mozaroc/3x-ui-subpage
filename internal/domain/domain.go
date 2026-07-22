@@ -41,6 +41,7 @@ type TLSSettings struct {
 	SNI         string
 	ALPN        []string
 	Fingerprint string
+	Insecure    bool // skip certificate verification (3x-ui Host "allowInsecure")
 
 	// Reality-only fields.
 	PublicKey string

@@ -82,6 +82,34 @@ type ManagedClient struct {
 	ExpiryTime int64  `json:"expiryTime"`
 }
 
+// HostGroup is one entry of GET /panel/api/hosts/list — an admin-configured
+// public-facing connection endpoint (or set of them) for one or more
+// inbounds, confirmed against a live 3.5.0 instance. The real schema has
+// ~30 fields; this keeps only the connection-relevant subset (address,
+// port, and the TLS-adjacent overrides) — the rest (mux/sockopt params,
+// pinned cert hashes, node GUIDs, Mihomo-specific tuning, shuffle/rotation
+// behavior, tags, descriptions) are a deliberate scope boundary, not an
+// oversight. Reality's own crypto fields (publicKey/shortId/spiderX) are
+// never part of a Host at all — confirmed empirically (a reality inbound's
+// own host has security:"same") — they always come from the inbound's own
+// streamSettings regardless of any Host.
+type HostGroup struct {
+	GroupID       string   `json:"groupId"`
+	InboundIDs    []int    `json:"inboundIds"`
+	Hosts         []string `json:"hosts"` // "host:port" entries; this project uses Hosts[0]
+	SortOrder     int      `json:"sortOrder"`
+	IsDisabled    bool     `json:"isDisabled"`
+	IsHidden      bool     `json:"isHidden"`
+	Port          int      `json:"port"`     // used when a Hosts[0] entry has no port of its own
+	Security      string   `json:"security"` // "same" (inherit inbound's), "tls", "none", "reality"
+	SNI           string   `json:"sni"`
+	HostHeader    string   `json:"hostHeader"`
+	Path          string   `json:"path"`
+	ALPN          []string `json:"alpn"`
+	Fingerprint   string   `json:"fingerprint"`
+	AllowInsecure bool     `json:"allowInsecure"`
+}
+
 // rawSettings is the decoded form of Inbound.Settings for protocols that
 // carry a client list (vless, vmess, trojan, shadowsocks).
 type rawSettings struct {

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net"
+	"strconv"
 
 	"github.com/irazin/3x-ui-subpage/internal/domain"
 )
@@ -106,10 +108,96 @@ func decodeClients(raw json.RawMessage) ([]EmbeddedClient, error) {
 	return s.Clients, nil
 }
 
+// selectHostForInbound returns the Host group that applies to inboundID —
+// the lowest-sortOrder group (among those listing inboundID) that isn't
+// disabled or hidden — or false if none applies. Deliberately picks exactly
+// one deterministic winner rather than merging multiple groups, the same
+// "one clear fallback" convention this project already uses elsewhere
+// (routing/assignment/tmplcache profile fallback).
+func selectHostForInbound(groups []HostGroup, inboundID int) (HostGroup, bool) {
+	var best HostGroup
+	found := false
+	for _, g := range groups {
+		if g.IsDisabled || g.IsHidden {
+			continue
+		}
+		applies := false
+		for _, id := range g.InboundIDs {
+			if id == inboundID {
+				applies = true
+				break
+			}
+		}
+		if !applies {
+			continue
+		}
+		if !found || g.SortOrder < best.SortOrder {
+			best = g
+			found = true
+		}
+	}
+	return best, found
+}
+
+// parseHostAddress splits a "host:port" (or bare "host") Hosts[] entry.
+// fallbackPort is used when the entry carries no port of its own.
+func parseHostAddress(entry string, fallbackPort int) (addr string, port int) {
+	h, p, err := net.SplitHostPort(entry)
+	if err != nil {
+		return entry, fallbackPort
+	}
+	if parsed, err := strconv.Atoi(p); err == nil {
+		return h, parsed
+	}
+	return h, fallbackPort
+}
+
+// applyHost overrides mc's connection fields with host's, per the rules
+// confirmed against a live 3x-ui 3.5.0 instance: security "same" means
+// "don't touch the inbound's own security"; every other field overrides
+// only when the Host actually sets something (a zero value means "inherit
+// the inbound's own value"). Reality's crypto fields (PublicKey/ShortID/
+// SpiderX) are never part of a Host and are left untouched unconditionally.
+func applyHost(mc *domain.MatchedClient, host HostGroup) {
+	if len(host.Hosts) > 0 {
+		mc.Server, mc.Port = parseHostAddress(host.Hosts[0], firstNonZero(host.Port, mc.Port))
+	}
+	if host.Security != "" && host.Security != "same" {
+		mc.Stream.Security = domain.Security(host.Security)
+	}
+	if host.SNI != "" {
+		mc.Stream.TLS.SNI = host.SNI
+	}
+	if len(host.ALPN) > 0 {
+		mc.Stream.TLS.ALPN = host.ALPN
+	}
+	if host.Fingerprint != "" {
+		mc.Stream.TLS.Fingerprint = host.Fingerprint
+	}
+	if host.Path != "" {
+		mc.Stream.Transport.Path = host.Path
+	}
+	if host.HostHeader != "" {
+		mc.Stream.Transport.Host = host.HostHeader
+	}
+	mc.Stream.TLS.Insecure = host.AllowInsecure
+}
+
+func firstNonZero(a, b int) int {
+	if a != 0 {
+		return a
+	}
+	return b
+}
+
 // MatchedClientsBySubID scans every inbound's client list and returns one
 // domain.MatchedClient per client whose SubID equals subID, across all
 // inbounds — mirroring 3x-ui's own multi-inbound subscription merge.
-func MatchedClientsBySubID(inbounds []Inbound, subID, fallbackHost string) ([]domain.MatchedClient, error) {
+// hostGroups (from GET /panel/api/hosts/list) overrides each match's
+// connection fields when a Host applies to that client's inbound — pass
+// nil if Hosts aren't available (a fetch failure degrades gracefully to
+// inbound-derived connection info, not a hard failure).
+func MatchedClientsBySubID(inbounds []Inbound, hostGroups []HostGroup, subID, fallbackHost string) ([]domain.MatchedClient, error) {
 	var out []domain.MatchedClient
 
 	for _, ib := range inbounds {
@@ -144,7 +232,8 @@ func MatchedClientsBySubID(inbounds []Inbound, subID, fallbackHost string) ([]do
 			return nil, fmt.Errorf("inbound %d: %w", ib.ID, err)
 		}
 
-		host := connectHost(ib, fallbackHost)
+		connectAddr := connectHost(ib, fallbackHost)
+		hostGroup, hasHostGroup := selectHostForInbound(hostGroups, ib.ID)
 		stats := statsByEmail(ib.ClientStats)
 
 		for _, c := range matches {
@@ -170,16 +259,20 @@ func MatchedClientsBySubID(inbounds []Inbound, subID, fallbackHost string) ([]do
 				}
 			}
 
-			out = append(out, domain.MatchedClient{
+			mc := domain.MatchedClient{
 				InboundID: ib.ID,
 				Tag:       ib.Tag,
 				Remark:    ib.Remark,
 				Protocol:  proto,
-				Server:    host,
+				Server:    connectAddr,
 				Port:      ib.Port,
 				Client:    account,
 				Stream:    stream,
-			})
+			}
+			if hasHostGroup {
+				applyHost(&mc, hostGroup)
+			}
+			out = append(out, mc)
 		}
 	}
 

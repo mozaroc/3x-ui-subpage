@@ -30,6 +30,7 @@ type ClientContext struct {
 	SNI         string
 	ALPN        string // comma-joined
 	Fingerprint string
+	Insecure    bool
 	PublicKey   string
 	ShortID     string
 	SpiderX     string
@@ -42,10 +43,7 @@ type ClientContext struct {
 
 // FromMatchedClient flattens mc into a ClientContext.
 func FromMatchedClient(mc domain.MatchedClient) ClientContext {
-	remark := mc.Client.Email
-	if remark == "" {
-		remark = mc.Remark
-	}
+	remark := combineName(mc.Remark, mc.Client.Email)
 	return ClientContext{
 		Protocol:    string(mc.Protocol),
 		UUID:        mc.Client.ID,
@@ -61,6 +59,7 @@ func FromMatchedClient(mc domain.MatchedClient) ClientContext {
 		SNI:         mc.Stream.TLS.SNI,
 		ALPN:        strings.Join(mc.Stream.TLS.ALPN, ","),
 		Fingerprint: mc.Stream.TLS.Fingerprint,
+		Insecure:    mc.Stream.TLS.Insecure,
 		PublicKey:   mc.Stream.TLS.PublicKey,
 		ShortID:     mc.Stream.TLS.ShortID,
 		SpiderX:     mc.Stream.TLS.SpiderX,
@@ -78,4 +77,22 @@ func FromMatchedClients(clients []domain.MatchedClient) []ClientContext {
 		out[i] = FromMatchedClient(mc)
 	}
 	return out
+}
+
+// combineName builds "<inbound name> + <client name>", the display name
+// every generator format renders each proxy entry under. Degrades to
+// whichever half is non-empty if the other is missing (a client with no
+// email, or an inbound with no remark set) rather than emitting a stray
+// " + ". This also disambiguates the previously-common case of one client
+// assigned to several inbounds, where every entry used to render under the
+// exact same name (just the client's email) with no way to tell them apart.
+func combineName(inboundName, clientName string) string {
+	switch {
+	case inboundName == "":
+		return clientName
+	case clientName == "":
+		return inboundName
+	default:
+		return inboundName + " + " + clientName
+	}
 }

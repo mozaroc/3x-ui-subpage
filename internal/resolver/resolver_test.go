@@ -13,10 +13,17 @@ import (
 type fakeLister struct {
 	inbounds []xui.Inbound
 	err      error
+
+	hosts    []xui.HostGroup
+	hostsErr error
 }
 
 func (f fakeLister) ListInbounds(ctx context.Context) ([]xui.Inbound, error) {
 	return f.inbounds, f.err
+}
+
+func (f fakeLister) ListHosts(ctx context.Context) ([]xui.HostGroup, error) {
+	return f.hosts, f.hostsErr
 }
 
 func inboundWithClient(id int, subID, email string, enable bool, totalGB, expiryMs, up, down int64) xui.Inbound {
@@ -83,6 +90,26 @@ func TestResolve_ActiveSubscription(t *testing.T) {
 	}
 	if len(sub.Clients) != 1 {
 		t.Errorf("expected 1 matched client, got %d", len(sub.Clients))
+	}
+}
+
+// TestResolve_DegradesGracefullyWhenHostsFail confirms a ListHosts failure
+// (Hosts is an enhancement, not required) doesn't fail resolution — it just
+// falls back to inbound-derived connection info, same as if no Host were
+// configured at all.
+func TestResolve_DegradesGracefullyWhenHostsFail(t *testing.T) {
+	lister := fakeLister{
+		inbounds: []xui.Inbound{inboundWithClient(1, "tok", "alice", true, 0, 0, 1000, 2000)},
+		hostsErr: errors.New("hosts endpoint unreachable"),
+	}
+	r := New(lister, "1.2.3.4")
+
+	sub, err := r.Resolve(context.Background(), "tok")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if len(sub.Clients) != 1 || sub.Clients[0].Server != "1.2.3.4" {
+		t.Fatalf("expected inbound-derived connection info despite the Hosts failure, got %+v", sub.Clients)
 	}
 }
 

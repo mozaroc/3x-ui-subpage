@@ -112,6 +112,32 @@ func TestClient_FailsAfterMaxAttempts(t *testing.T) {
 	}
 }
 
+func TestClient_ListHosts(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/panel/api/hosts/list" {
+			http.NotFound(w, r)
+			return
+		}
+		writeEnvelope(w, []HostGroup{
+			{GroupID: "g1", InboundIDs: []int{1}, Hosts: []string{"cdn.example.com:443"}, Security: "same"},
+		})
+	}))
+	defer srv.Close()
+
+	c, err := New(srv.URL, "key", 5*time.Second, 3, 10*time.Millisecond)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	hosts, err := c.ListHosts(t.Context())
+	if err != nil {
+		t.Fatalf("ListHosts: %v", err)
+	}
+	if len(hosts) != 1 || hosts[0].GroupID != "g1" || hosts[0].Hosts[0] != "cdn.example.com:443" {
+		t.Fatalf("unexpected hosts: %+v", hosts)
+	}
+}
+
 func TestClient_AddClient(t *testing.T) {
 	var gotBody addClientRequest
 
@@ -339,4 +365,8 @@ type fakeInboundLister struct {
 
 func (f *fakeInboundLister) ListInbounds(ctx context.Context) ([]Inbound, error) {
 	return f.inbounds, nil
+}
+
+func (f *fakeInboundLister) ListHosts(ctx context.Context) ([]HostGroup, error) {
+	return nil, nil
 }

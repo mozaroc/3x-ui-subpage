@@ -18,6 +18,10 @@ func (f *failingLister) ListInbounds(ctx context.Context) ([]Inbound, error) {
 	return nil, f.err
 }
 
+func (f *failingLister) ListHosts(ctx context.Context) ([]HostGroup, error) {
+	return nil, nil
+}
+
 // TestCachedLister_CachesFailuresTooWithinTTL guards against a real bug:
 // only successes were cached, so a persistently unreachable/erroring panel
 // meant every single ListInbounds call — even several in the same request,
@@ -62,6 +66,52 @@ func TestCachedLister_InvalidateClearsCachedFailure(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&upstream.calls); got != 1 {
 		t.Fatalf("expected exactly 1 fresh upstream call after Invalidate, got %d", got)
+	}
+}
+
+type failingHostLister struct {
+	inboundCalls int32
+	hostCalls    int32
+	hostErr      error
+	hosts        []HostGroup
+}
+
+func (f *failingHostLister) ListInbounds(ctx context.Context) ([]Inbound, error) {
+	atomic.AddInt32(&f.inboundCalls, 1)
+	return nil, nil
+}
+
+func (f *failingHostLister) ListHosts(ctx context.Context) ([]HostGroup, error) {
+	atomic.AddInt32(&f.hostCalls, 1)
+	return f.hosts, f.hostErr
+}
+
+// TestCachedLister_HostsCachedIndependentlyFromInbounds guards against the
+// two resources sharing one cache slot by accident after the ttlCache[T]
+// extraction — a failure fetching hosts must not be replayed for
+// ListInbounds, and vice versa; each resource gets its own TTL/failure
+// state.
+func TestCachedLister_HostsCachedIndependentlyFromInbounds(t *testing.T) {
+	upstream := &failingHostLister{hostErr: errors.New("hosts unreachable")}
+	cl := NewCachedLister(upstream, time.Hour)
+
+	if _, err := cl.ListHosts(t.Context()); err == nil {
+		t.Fatal("expected hosts error")
+	}
+	if _, err := cl.ListInbounds(t.Context()); err != nil {
+		t.Fatalf("expected ListInbounds to succeed independently of the ListHosts failure, got %v", err)
+	}
+
+	for i := 0; i < 3; i++ {
+		if _, err := cl.ListHosts(t.Context()); err == nil {
+			t.Fatal("expected cached hosts error to keep propagating")
+		}
+	}
+	if got := atomic.LoadInt32(&upstream.hostCalls); got != 1 {
+		t.Fatalf("expected exactly 1 upstream ListHosts call (rest cached), got %d", got)
+	}
+	if got := atomic.LoadInt32(&upstream.inboundCalls); got != 1 {
+		t.Fatalf("expected exactly 1 upstream ListInbounds call, got %d", got)
 	}
 }
 

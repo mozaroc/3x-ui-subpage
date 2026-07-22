@@ -18,6 +18,7 @@ var ErrNotFound = errors.New("resolver: subscription not found")
 // Lister is the subset of xui.CachedLister (or xui.Client) resolver needs.
 type Lister interface {
 	ListInbounds(ctx context.Context) ([]xui.Inbound, error)
+	ListHosts(ctx context.Context) ([]xui.HostGroup, error)
 }
 
 // Resolver resolves subscription tokens against a panel's inbound list.
@@ -41,7 +42,13 @@ func (r *Resolver) Resolve(ctx context.Context, subID string) (domain.Subscripti
 		return domain.Subscription{}, err
 	}
 
-	matches, err := xui.MatchedClientsBySubID(inbounds, subID, r.fallbackHost)
+	// Hosts are an enhancement (3x-ui's own per-inbound connection-address/
+	// TLS overrides), not required — a fetch failure degrades to
+	// inbound-derived connection info rather than failing the whole
+	// subscription.
+	hosts, _ := r.lister.ListHosts(ctx)
+
+	matches, err := xui.MatchedClientsBySubID(inbounds, hosts, subID, r.fallbackHost)
 	if err != nil {
 		return domain.Subscription{}, err
 	}

@@ -88,6 +88,14 @@ func (d *DynamicClient) ListInbounds(ctx context.Context) ([]Inbound, error) {
 	return c.ListInbounds(ctx)
 }
 
+func (d *DynamicClient) ListHosts(ctx context.Context) ([]HostGroup, error) {
+	c, err := d.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return c.ListHosts(ctx)
+}
+
 func (d *DynamicClient) GetClient(ctx context.Context, email string) (ManagedClient, bool, error) {
 	c, err := d.client(ctx)
 	if err != nil {

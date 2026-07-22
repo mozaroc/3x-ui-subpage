@@ -27,7 +27,8 @@ proxies:
 {{if eq $c.Protocol "vless"}}    uuid: {{$c.UUID}}
     network: {{$c.Network}}
     tls: {{if ne $c.Security "none"}}true{{else}}false{{end}}
-{{if $c.Flow}}    flow: {{$c.Flow}}
+{{if $c.Insecure}}    skip-cert-verify: true
+{{end}}{{if $c.Flow}}    flow: {{$c.Flow}}
 {{end}}{{if eq $c.Security "reality"}}    servername: {{$c.SNI}}
     client-fingerprint: {{$c.Fingerprint}}
     reality-opts:
@@ -46,7 +47,8 @@ proxies:
     cipher: auto
     network: {{$c.Network}}
     tls: {{if ne $c.Security "none"}}true{{else}}false{{end}}
-{{if eq $c.Network "ws"}}    ws-opts:
+{{if $c.Insecure}}    skip-cert-verify: true
+{{end}}{{if eq $c.Network "ws"}}    ws-opts:
       path: {{$c.Path}}
       headers:
         Host: {{$c.Host}}
@@ -54,6 +56,7 @@ proxies:
       grpc-service-name: {{$c.ServiceName}}
 {{end}}{{else if eq $c.Protocol "trojan"}}    password: "{{$c.Password}}"
 {{if $c.SNI}}    sni: {{$c.SNI}}
+{{end}}{{if $c.Insecure}}    skip-cert-verify: true
 {{end}}{{else if eq $c.Protocol "shadowsocks"}}    cipher: {{$c.Method}}
     password: "{{$c.Password}}"
 {{end}}{{end}}

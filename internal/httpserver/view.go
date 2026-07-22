@@ -41,7 +41,6 @@ type SubscriptionView struct {
 	TrafficRemaining int64
 	SubscriptionURL  string
 	QRPngURL         string
-	QRSvgURL         string
 	DownloadXray     string
 	DownloadXrayJSON string
 	DownloadClash    string
@@ -88,7 +87,6 @@ func buildSubscriptionView(sub domain.Subscription, catalogApps []apps.App, supp
 		TrafficRemaining: sub.Traffic.Remaining(),
 		SubscriptionURL:  subURL,
 		QRPngURL:         fmt.Sprintf("/sub/%s/qr.png", sub.SubID),
-		QRSvgURL:         fmt.Sprintf("/sub/%s/qr.svg", sub.SubID),
 		DownloadXray:     fmt.Sprintf("/sub/%s/xray", sub.SubID),
 		DownloadXrayJSON: fmt.Sprintf("/sub/%s/xray.json", sub.SubID),
 		DownloadClash:    fmt.Sprintf("/sub/%s/clash", sub.SubID),

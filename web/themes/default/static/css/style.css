@@ -120,7 +120,19 @@ body {
   border-radius: 8px;
   background: #fff;
   padding: 8px;
+  display: block;
 }
+.qr-block__image-btn {
+  position: relative;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-radius: 8px;
+  line-height: 0;
+}
+.qr-block__image-btn:hover .qr-block__image { opacity: 0.85; }
 .qr-block__details { flex: 1; min-width: 220px; }
 .qr-block__label {
   display: block;
@@ -140,6 +152,23 @@ body {
   color: var(--color-text);
   font-family: var(--font-mono);
   font-size: 0.85rem;
+}
+
+/* "Copied!" feedback overlay, works for text or image copy buttons */
+[data-copy] { position: relative; }
+.is-copied { color: transparent !important; }
+.is-copied::after {
+  content: "Copied!";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  border-radius: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
 }
 
 .btn {

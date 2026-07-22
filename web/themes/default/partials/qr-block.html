@@ -2,14 +2,15 @@
 <section class="card qr-block">
   <h2>Subscription</h2>
   <div class="qr-block__inner">
-    <img class="qr-block__image" src="{{.Data.QRPngURL}}" alt="Subscription QR code" width="220" height="220">
+    <button type="button" class="qr-block__image-btn" data-copy="{{.Data.SubscriptionURL}}" title="Click to copy subscription URL">
+      <img class="qr-block__image" src="{{.Data.QRPngURL}}" alt="Subscription QR code (click to copy the URL)" width="220" height="220">
+    </button>
     <div class="qr-block__details">
       <label class="qr-block__label">Subscription URL</label>
       <div class="copy-row">
         <input class="copy-row__input" type="text" readonly value="{{.Data.SubscriptionURL}}">
         <button class="btn btn--primary" data-copy="{{.Data.SubscriptionURL}}">Copy</button>
       </div>
-      <a class="btn btn--secondary" href="{{.Data.QRSvgURL}}" download>Download QR (SVG)</a>
     </div>
   </div>
 </section>

@@ -15,16 +15,12 @@
 # systemd walkthrough: user/dir/service all named "subscription-service",
 # under /opt, /etc, /var/lib.
 #
-# The subscription-service GitHub repo is private, so downloading a
-# release requires a token: pass --token or set $GITHUB_TOKEN.
-#
 # Usage:
-#   sudo bash install.sh --token <github-token> [options]
+#   sudo bash install.sh [options]
 #   sudo bash install.sh --uninstall [-y]
 #
 # Options:
 #   --mode dedicated|panel     Force install mode (auto-detected otherwise)
-#   --token <token>            GitHub token (or $GITHUB_TOKEN) — required
 #   --version <tag>            Release tag to install (default: latest)
 #   --domain <domain>          Domain this service is reachable under
 #   --xui-base-url <url>       3x-ui panel API base URL
@@ -37,7 +33,7 @@
 # Recommended usage is download-then-run (not `curl | bash`), since this
 # script prompts interactively for anything not passed as a flag:
 #   wget -qO install.sh https://raw.githubusercontent.com/mozaroc/3x-ui-subpage/main/install.sh
-#   sudo bash install.sh --token "$GITHUB_TOKEN"
+#   sudo bash install.sh
 
 set -euo pipefail
 
@@ -58,7 +54,6 @@ NGINX_VHOST_DEDICATED="/etc/nginx/sites-available/${SERVICE_NAME}"
 LISTEN_ADDR="127.0.0.1:8080"
 
 MODE=""
-TOKEN="${GITHUB_TOKEN:-}"
 VERSION="latest"
 DOMAIN=""
 XUI_BASE_URL=""
@@ -94,7 +89,6 @@ parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --mode) MODE="${2:?--mode requires an argument}"; shift 2 ;;
-      --token) TOKEN="${2:?--token requires an argument}"; shift 2 ;;
       --version) VERSION="${2:?--version requires an argument}"; shift 2 ;;
       --domain) DOMAIN="${2:?--domain requires an argument}"; shift 2 ;;
       --xui-base-url) XUI_BASE_URL="${2:?--xui-base-url requires an argument}"; shift 2 ;;
@@ -242,28 +236,20 @@ gather_config() {
 }
 
 # ---------------------------------------------------------------------------
-# GitHub release download (private repo: token required, use the assets
-# API endpoint, not browser_download_url — that needs an authenticated
-# browser session on a private repo, a bearer token isn't enough for it)
+# GitHub release download (public repo: plain unauthenticated API + the
+# asset's public browser_download_url)
 # ---------------------------------------------------------------------------
 
 gh_api() {
-  curl -fsSL -H "Authorization: Bearer ${TOKEN}" -H "Accept: application/vnd.github+json" "$@"
+  curl -fsSL -H "Accept: application/vnd.github+json" "$@"
 }
 
-gh_asset_download() {
-  local asset_id="$1" out="$2"
-  curl -fsSL -H "Authorization: Bearer ${TOKEN}" -H "Accept: application/octet-stream" \
-    "${GITHUB_API}/repos/${REPO}/releases/assets/${asset_id}" -o "$out"
-}
-
-asset_id_for() {
+asset_url_for() {
   local name="$1"
-  jq -r --arg n "$name" '.assets[] | select(.name == $n) | .id' <<<"$RELEASE_JSON"
+  jq -r --arg n "$name" '.assets[] | select(.name == $n) | .browser_download_url' <<<"$RELEASE_JSON"
 }
 
 resolve_release() {
-  [[ -n "$TOKEN" ]] || die "a GitHub token is required to download the release (--token or \$GITHUB_TOKEN) — the repo is private"
   log "Resolving release: ${VERSION}"
   local url
   if [[ "$VERSION" == "latest" ]]; then
@@ -271,7 +257,7 @@ resolve_release() {
   else
     url="${GITHUB_API}/repos/${REPO}/releases/tags/${VERSION}"
   fi
-  RELEASE_JSON="$(gh_api "$url")" || die "failed to fetch release metadata from ${url} (bad token, network, or tag not found)"
+  RELEASE_JSON="$(gh_api "$url")" || die "failed to fetch release metadata from ${url} (network, or tag not found)"
   RELEASE_TAG="$(jq -r '.tag_name // empty' <<<"$RELEASE_JSON")"
   [[ -n "$RELEASE_TAG" ]] || die "could not resolve a release tag from ${url}"
   log "Using release ${RELEASE_TAG}"
@@ -279,23 +265,23 @@ resolve_release() {
 
 download_release() {
   resolve_release
-  local arch bin_name bin_id web_id sum_id
+  local arch bin_name bin_url web_url sum_url
   arch="$(arch_suffix)"
   bin_name="subscription-service-linux-${arch}"
 
-  bin_id="$(asset_id_for "$bin_name")"
-  web_id="$(asset_id_for web.tar.gz)"
-  sum_id="$(asset_id_for checksums.txt)"
-  [[ -n "$bin_id" ]] || die "release ${RELEASE_TAG} has no asset named ${bin_name}"
-  [[ -n "$web_id" ]] || die "release ${RELEASE_TAG} has no web.tar.gz asset (built from an older tag? try --version with a newer one)"
-  [[ -n "$sum_id" ]] || die "release ${RELEASE_TAG} has no checksums.txt asset"
+  bin_url="$(asset_url_for "$bin_name")"
+  web_url="$(asset_url_for web.tar.gz)"
+  sum_url="$(asset_url_for checksums.txt)"
+  [[ -n "$bin_url" ]] || die "release ${RELEASE_TAG} has no asset named ${bin_name}"
+  [[ -n "$web_url" ]] || die "release ${RELEASE_TAG} has no web.tar.gz asset (built from an older tag? try --version with a newer one)"
+  [[ -n "$sum_url" ]] || die "release ${RELEASE_TAG} has no checksums.txt asset"
 
   log "Downloading ${bin_name}"
-  gh_asset_download "$bin_id" "${WORKDIR}/${bin_name}"
+  curl -fsSL "$bin_url" -o "${WORKDIR}/${bin_name}"
   log "Downloading web.tar.gz"
-  gh_asset_download "$web_id" "${WORKDIR}/web.tar.gz"
+  curl -fsSL "$web_url" -o "${WORKDIR}/web.tar.gz"
   log "Downloading checksums.txt"
-  gh_asset_download "$sum_id" "${WORKDIR}/checksums.txt"
+  curl -fsSL "$sum_url" -o "${WORKDIR}/checksums.txt"
 
   log "Verifying checksum"
   (cd "$WORKDIR" && grep " ${bin_name}\$" checksums.txt | sha256sum -c -) \

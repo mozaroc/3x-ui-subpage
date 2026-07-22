@@ -68,7 +68,9 @@
 <div class="card">
   <h2>Subscription</h2>
   <div class="qr-row">
-    <img class="qr-row__image" src="{{.Data.QRPngURL}}" alt="Subscription QR code" width="180" height="180">
+    <button type="button" class="qr-row__image-btn" data-copy="{{.Data.SubscriptionURL}}" title="Click to copy subscription URL">
+      <img class="qr-row__image" src="{{.Data.QRPngURL}}" alt="Subscription QR code (click to copy the URL)" width="180" height="180">
+    </button>
     <div class="qr-row__details">
       <div class="field field--full">
         <label>Subscription URL</label>
@@ -77,7 +79,6 @@
           <button class="btn btn--primary" type="button" data-copy="{{.Data.SubscriptionURL}}">Copy</button>
         </div>
       </div>
-      <a class="btn btn--secondary" href="{{.Data.QRSvgURL}}" download>Download QR (SVG)</a>
     </div>
   </div>
   <p class="hint">The QR code and subscription URL only resolve once this user has at least one successfully-synced inbound.</p>

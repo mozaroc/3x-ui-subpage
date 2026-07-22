@@ -57,11 +57,11 @@ func TestUsers_CreateListDetail(t *testing.T) {
 	if !strings.Contains(body, "https://sub.example.com/sub/sub-alice") {
 		t.Fatalf("expected detail page to show the full subscription URL, got: %s", body)
 	}
-	if !strings.Contains(body, "/sub/sub-alice/qr.png") || !strings.Contains(body, "/sub/sub-alice/qr.svg") {
-		t.Fatalf("expected detail page to reference the QR endpoints, got: %s", body)
+	if !strings.Contains(body, "/sub/sub-alice/qr.png") {
+		t.Fatalf("expected detail page to reference the QR png endpoint, got: %s", body)
 	}
-	if !strings.Contains(body, "data-copy=") {
-		t.Fatalf("expected detail page to have a copy button, got: %s", body)
+	if strings.Count(body, "data-copy=") < 2 {
+		t.Fatalf("expected two copy targets (the Copy button and the QR image), got: %s", body)
 	}
 
 	u, err := s.users.Get(id)

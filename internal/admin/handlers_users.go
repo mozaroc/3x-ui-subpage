@@ -313,7 +313,6 @@ type userDetailPageData struct {
 	SyncStatus      string
 	SubscriptionURL string
 	QRPngURL        string
-	QRSvgURL        string
 	Inbounds        []inboundOption
 	SyncJobs        []syncJobRow
 	Error           string
@@ -403,7 +402,6 @@ func (s *Server) handleUserDetail(w http.ResponseWriter, r *http.Request) {
 			SyncStatus:      syncStatus,
 			SubscriptionURL: fmt.Sprintf("%s/sub/%s", strings.TrimSuffix(s.publicURL, "/"), u.SubID),
 			QRPngURL:        fmt.Sprintf("/sub/%s/qr.png", u.SubID),
-			QRSvgURL:        fmt.Sprintf("/sub/%s/qr.svg", u.SubID),
 			Inbounds:        options, SyncJobs: jobRows,
 		},
 	})

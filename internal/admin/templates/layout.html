@@ -24,9 +24,11 @@
         if (copyBtn) {
           var text = copyBtn.getAttribute("data-copy");
           navigator.clipboard.writeText(text).then(function () {
-            var original = copyBtn.textContent;
-            copyBtn.textContent = "Copied!";
-            setTimeout(function () { copyBtn.textContent = original; }, 1500);
+            // A CSS overlay (.is-copied) rather than swapping textContent:
+            // some data-copy buttons (the QR image) contain an <img>, and
+            // textContent="Copied!" would silently delete it.
+            copyBtn.classList.add("is-copied");
+            setTimeout(function () { copyBtn.classList.remove("is-copied"); }, 1500);
           });
         }
       });
@@ -178,15 +180,16 @@
     .switch { position: relative; display: inline-block; width: 38px; height: 22px; flex-shrink: 0; }
     .switch input {
       position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0;
-      opacity: 0; cursor: pointer;
-      /* Without this, the browser's native checkbox hit-region (small,
-         positioned wherever it would've drawn the glyph) stays the actual
-         clickable area even though opacity/width/height make the box
-         invisible and full-sized — only appearance:none makes the whole
-         sized box itself the real hit target. */
+      opacity: 0; cursor: pointer; z-index: 1;
       appearance: none; -webkit-appearance: none;
     }
-    .switch .track { position: absolute; inset: 0; background: var(--border); border-radius: 999px; transition: background .15s; }
+    /* .track is painted after (on top of) the input in source order, so
+       without pointer-events:none it silently intercepts every click
+       across the whole switch — the input underneath would only ever see
+       clicks that land on some unclipped sliver, which is exactly the
+       "only a tiny corner responds" symptom. This makes clicks pass
+       straight through to the real input. */
+    .switch .track { position: absolute; inset: 0; background: var(--border); border-radius: 999px; transition: background .15s; pointer-events: none; }
     .switch .track:before {
       content: ""; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px;
       background: #fff; border-radius: 50%; transition: transform .15s;
@@ -242,10 +245,24 @@
 
     /* --- subscription QR/copy block --- */
     .qr-row { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; }
-    .qr-row__image { border-radius: var(--radius-sm); background: #fff; padding: 8px; flex-shrink: 0; }
+    .qr-row__image { border-radius: var(--radius-sm); background: #fff; padding: 8px; flex-shrink: 0; display: block; }
+    .qr-row__image-btn {
+      position: relative; flex-shrink: 0; padding: 0; border: none; background: none; cursor: pointer;
+      border-radius: var(--radius-sm); line-height: 0;
+    }
+    .qr-row__image-btn:hover .qr-row__image { opacity: .85; }
     .qr-row__details { flex: 1; min-width: 240px; }
     .copy-row { display: flex; gap: 8px; }
     .copy-row input { flex: 1; min-width: 0; }
+
+    /* --- "Copied!" feedback overlay, works for text or image buttons --- */
+    [data-copy] { position: relative; }
+    .is-copied { color: transparent !important; }
+    .is-copied::after {
+      content: "Copied!"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      background: var(--primary); color: var(--primary-contrast); border-radius: inherit;
+      font-size: .85rem; font-weight: 600;
+    }
   </style>
 </head>
 <body>

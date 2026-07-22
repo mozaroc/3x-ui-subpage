@@ -75,3 +75,13 @@ func (l *CachedLister) ListInbounds(ctx context.Context) ([]Inbound, error) {
 	}
 	return v.([]Inbound), nil
 }
+
+// Invalidate forces the next ListInbounds call to hit upstream instead of
+// returning the cached value, regardless of TTL. Called by the sync worker
+// after a successful write so readers (subscription resolution, the admin
+// Users list) see the change immediately.
+func (l *CachedLister) Invalidate() {
+	l.mu.Lock()
+	l.fetchedAt = time.Time{}
+	l.mu.Unlock()
+}

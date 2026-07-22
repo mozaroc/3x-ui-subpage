@@ -1,0 +1,27 @@
+{{define "page-user-form"}}
+<h1>New user</h1>
+{{if .Data.Error}}<div class="error">{{.Data.Error}}</div>{{end}}
+<div class="card">
+  <form method="post" action="/admin/users">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <label>Username (also the panel client's "email")</label>
+    <input type="text" name="username" required>
+    <label>Subscription id (the /sub/&#123;subId&#125; token)</label>
+    <input type="text" name="sub_id" required>
+    <label>Vless flow (optional, e.g. xtls-rprx-vision)</label>
+    <input type="text" name="flow">
+    <label>Shadowsocks method</label>
+    <input type="text" name="method" value="chacha20-ietf-poly1305">
+    <label>Traffic limit (GB, blank = unlimited)</label>
+    <input type="text" name="total_gb" placeholder="unlimited">
+    <label>Expiry (YYYY-MM-DD, blank = never)</label>
+    <input type="text" name="expiry" placeholder="never">
+    <label>Notes</label>
+    <textarea name="notes" rows="3"></textarea>
+    <br><br>
+    <button class="btn btn--primary" type="submit">Create</button>
+    <a class="btn btn--secondary" href="/admin/users">Cancel</a>
+  </form>
+</div>
+<p>uuid/password/inbound assignment are set after creation, on the user's detail page.</p>
+{{end}}

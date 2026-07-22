@@ -1,0 +1,97 @@
+{{define "page-user-detail"}}
+<h1>{{.Data.User.Username}}</h1>
+{{if .Data.Error}}<div class="error">{{.Data.Error}}</div>{{end}}
+
+<div class="card">
+  <p><strong>Status:</strong> {{.Data.Status}} &nbsp; <strong>Sync:</strong> {{.Data.SyncStatus}}</p>
+  <p><strong>Traffic:</strong> {{.Data.TrafficUsed}} / {{.Data.TrafficLimit}} &nbsp; <strong>Expires:</strong> {{.Data.LiveExpiry}}</p>
+  <p><strong>Subscription id:</strong> {{.Data.User.SubID}}</p>
+  <p><strong>UUID:</strong> {{.Data.User.UUID}} &nbsp; <strong>Password:</strong> {{.Data.User.Password}}</p>
+
+  <form method="post" action="/admin/users/{{.Data.User.ID}}/toggle" style="display:inline;">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <button class="btn btn--secondary" type="submit">{{if .Data.User.Enabled}}Suspend{{else}}Reactivate{{end}}</button>
+  </form>
+  <form method="post" action="/admin/users/{{.Data.User.ID}}/reset-traffic" style="display:inline;" onsubmit="return confirm('Reset traffic usage for this user on every assigned inbound?');">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <button class="btn btn--secondary" type="submit">Reset traffic</button>
+  </form>
+  <form method="post" action="/admin/users/{{.Data.User.ID}}/regenerate-uuid" style="display:inline;" onsubmit="return confirm('Regenerate this user\'s UUID/password? Old links stop working immediately.');">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <button class="btn btn--secondary" type="submit">Regenerate UUID</button>
+  </form>
+  <form method="post" action="/admin/users/{{.Data.User.ID}}/delete" style="display:inline;" onsubmit="return confirm('Delete this user and remove them from every assigned inbound?');">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <button class="btn btn--danger" type="submit">Delete</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Edit</h2>
+  <form method="post" action="/admin/users/{{.Data.User.ID}}">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <label>Username</label>
+    <input type="text" name="username" value="{{.Data.User.Username}}" required>
+    <label>Subscription id</label>
+    <input type="text" name="sub_id" value="{{.Data.User.SubID}}" required>
+    <label>Vless flow</label>
+    <input type="text" name="flow" value="{{.Data.User.Flow}}">
+    <label>Shadowsocks method</label>
+    <input type="text" name="method" value="{{.Data.User.Method}}">
+    <label>Traffic limit (GB, blank = unlimited)</label>
+    <input type="text" name="total_gb" value="{{.Data.TotalGBValue}}" placeholder="unlimited">
+    <label>Expiry (YYYY-MM-DD, blank = never)</label>
+    <input type="text" name="expiry" value="{{.Data.ExpiryValue}}" placeholder="never">
+    <label>Notes</label>
+    <textarea name="notes" rows="3">{{.Data.User.Notes}}</textarea>
+    <br><br>
+    <button class="btn btn--primary" type="submit">Save</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Inbounds</h2>
+  <form method="post" action="/admin/users/{{.Data.User.ID}}/inbounds">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <table>
+      <tr><th></th><th>ID</th><th>Tag</th><th>Protocol</th></tr>
+      {{range .Data.Inbounds}}
+      <tr>
+        <td><input type="checkbox" name="inbound_id" value="{{.ID}}" {{if .Assigned}}checked{{end}} style="width:auto;"></td>
+        <td>{{.ID}}</td>
+        <td>{{.Tag}}</td>
+        <td>{{.Protocol}}</td>
+      </tr>
+      {{end}}
+    </table>
+    <button class="btn btn--primary" type="submit">Save assignments</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Sync history</h2>
+  <table>
+    <tr><th>Time</th><th>Inbound</th><th>Op</th><th>Status</th><th>Attempts</th><th>Error</th><th></th></tr>
+    {{range .Data.SyncJobs}}
+    <tr>
+      <td>{{.UpdatedAt}}</td>
+      <td>{{.InboundID}}</td>
+      <td>{{.Op}}</td>
+      <td>{{.Status}}</td>
+      <td>{{.Attempts}}</td>
+      <td>{{.LastError}}</td>
+      <td>
+        {{if eq .Status "failed"}}
+        <form method="post" action="/admin/sync/{{.ID}}/retry">
+          <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+          <button class="btn btn--secondary" type="submit">Retry</button>
+        </form>
+        {{end}}
+      </td>
+    </tr>
+    {{end}}
+  </table>
+</div>
+
+<a class="btn btn--secondary" href="/admin/users">Back to users</a>
+{{end}}

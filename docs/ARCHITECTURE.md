@@ -8,8 +8,10 @@ resolves subscription tokens (`subId`) to a set of proxy configurations and
 renders them as an HTML page, Clash/Mihomo YAML, or an Xray share-link
 subscription, depending on the requesting client and the subscriber's
 assigned template profile. Every admin-editable surface — settings, app
-catalog, themes, generator templates, per-user assignments — lives in one
-SQLite database, edited either through a server-rendered admin web UI
+catalog, themes, generator templates, routing rules, per-user assignments,
+and now user accounts themselves (synced out to 3x-ui automatically) —
+lives in one SQLite database, edited either through a server-rendered
+admin web UI
 (`/admin`) or directly via SQL; the binary's only on-disk dependency is a
 tiny bootstrap file naming that database's path.
 
@@ -34,7 +36,20 @@ tiny bootstrap file naming that database's path.
   panel's inbound list (including the embedded `settings`/`streamSettings`
   JSON strings). Wrapped by `CachedLister` (`internal/xui/cache.go`) which
   adds a short TTL cache + singleflight de-duplication so many concurrent
-  subscription requests collapse into one upstream call.
+  subscription requests collapse into one upstream call; `Invalidate()`
+  forces the next read to bypass the cache, called by the sync worker after
+  every successful write so readers see the change immediately. Also owns
+  the *write* side: `AddClient`/`UpdateClient`/`DeleteClient`/
+  `ResetClientTraffic`. **Judgment call, same spirit as the Happ/Incy one
+  below**: these write endpoints are community-documented, not officially
+  versioned, and the `:clientId` path segment upstream's own backend
+  expects is protocol-dependent (a client's `id` for vless/vmess, its
+  `password` for trojan/shadowsocks — there's no single universal key
+  except `email`, which upstream only uses for `resetClientTraffic`).
+  Resolved as `id`-else-`password`, isolated in one place
+  (`xui.clientIdentifier` / `sync.Payload.Identifier`) — verify one create
+  and one edit against your real panel/fork before relying on it in
+  production.
 - **`internal/domain`** — protocol-agnostic core types (`MatchedClient`,
   `Subscription`, `TrafficStats`, `Status`). Every other layer depends on
   this, never on `internal/xui`'s raw API shapes.
@@ -84,6 +99,30 @@ tiny bootstrap file naming that database's path.
   `.Rules`) so the routing-rule *data* lives in one structured table while
   each client format's *template* decides how to render it into that
   client's own syntax.
+- **`internal/users`** — the canonical source of truth for subscriber
+  accounts (table `users`) and their inbound assignments (table
+  `user_inbounds`). Owns local bookkeeping only — a `User`'s
+  uuid/password/method/flow apply uniformly to every inbound it's assigned
+  to, regardless of that inbound's protocol. Does not talk to 3x-ui; that's
+  `internal/sync`'s job.
+- **`internal/sync`** — the outbox/audit-log between `internal/users` and
+  the panel. Every admin mutation that needs to reach 3x-ui (create/edit/
+  delete/enable-disable/reset-traffic/regenerate-uuid/assign/unassign)
+  enqueues a `sync_jobs` row *snapshotting* the client fields it needs
+  (email/subId/credentials/limits) at enqueue time, rather than looking the
+  user back up when it runs — so a job survives a later edit or even
+  deletion of the user it was for, and its log entry stays meaningful.  A
+  background `Worker` (started from `cmd/subscription-service`, stopped on
+  the same shutdown context as the HTTP server) polls for due jobs, calls
+  the matching `xui.Client` write method, and retries with exponential
+  backoff (capped, terminal after 8 attempts) on failure. Before an assign,
+  it checks the live inbound list for a client with the same email already
+  present (drift from a prior partial failure, or a manual panel-side edit)
+  and self-heals to an update instead of erroring on a duplicate-add.
+  `sync_jobs` rows are kept as an audit log (`ListForUser`/`ListRecent`,
+  backing `/admin/sync` and each user's detail page) and pruned only once
+  `success` and older than 7 days — failed/pending rows are never pruned by
+  age, so nothing silently disappears before an admin sees it.
 - **`internal/apps`** — application catalog (table `applications`),
   hot-reloaded via `MAX(updated_at)`, deep-link placeholder rendering, plus
   `Create`/`Update`/`Delete`/`Get`/`ListAll` for the admin UI.
@@ -109,9 +148,12 @@ tiny bootstrap file naming that database's path.
   (its own templates are `//go:embed`ded application code, **not**
   admin-editable database content — letting database content control the
   panel that administers the database would be a privilege-escalation
-  footgun) covering settings, applications, themes, templates, and
-  assignments. Session + CSRF + secure-header middleware; mounted at
-  `/admin` by `cmd/subscription-service`.
+  footgun) covering settings, applications, themes, templates, assignments,
+  routing, and users (create/edit/delete/suspend/reactivate/reset-traffic/
+  change-limits/change-expiry/regenerate-uuid/search/filter/sort/bulk-ops,
+  inbound assignment, and synchronization status, plus the `/admin/sync`
+  history/retry view). Session + CSRF + secure-header middleware; mounted
+  at `/admin` by `cmd/subscription-service`.
 - **`internal/httpserver`** — chi router, middleware (secure headers, rate
   limiting, gzip, request logging), and handlers that resolve a
   subscriber's profile and wire the above together per request. This is the
@@ -140,6 +182,36 @@ independently testable against an in-memory SQLite database, without a real
    - Clash/Mihomo/stash → `clash`/`mihomo` generator, using the profile
    - everything else → `linkgen.BuildSubscription`, using the profile
 5. Response is gzip-compressed and logged.
+
+## Write path (admin → 3x-ui)
+
+`internal/resolver` and everything downstream of it (every generator, the
+subscription page) is completely unchanged by user management — it still
+does a live scan of whatever's actually on the panel, since xray-core is
+what actually enforces limits and meters traffic. `internal/users`/
+`internal/sync` are a separate *management* layer that pushes desired
+state at the panel:
+
+1. An admin action in `/admin/users` (create/edit/delete/toggle/reset-
+   traffic/regenerate-uuid/assign-inbounds/bulk) writes the local `users`/
+   `user_inbounds` row(s) via `users.Store`, then enqueues one `sync_jobs`
+   row per affected inbound via `sync.Store.Enqueue` — in the same request,
+   immediately after the local write succeeds. (This is deliberately not a
+   single cross-package SQL transaction spanning both stores — the gap
+   between the two calls is one local step in one process, and any missed
+   enqueue is always visible and manually retriable from `/admin/sync`, a
+   simplification judged proportionate to this system's actual risk
+   profile rather than threading `*sql.Tx` through every `users.Store`
+   method.)
+2. The request returns immediately — the admin isn't waiting on a
+   potentially slow/unreachable panel call.
+3. `sync.Worker` (running in the background, started from
+   `cmd/subscription-service`) picks up the job on its next tick, calls the
+   matching `xui.Client` write method, and updates the job's status
+   (`success`/retried-with-backoff/terminally `failed`).
+4. On success, the shared `CachedLister` is invalidated, so the existing
+   resolver/subscription path picks up the change on the very next
+   request — no resolver code involved at all.
 
 ## Admin request flow (`POST /admin/...`)
 
@@ -173,7 +245,12 @@ live) load once at startup from `LoadFromDB` and need a restart to pick up
 changes. The app catalog, themes, generator templates, and per-user
 assignments hot-reload per request with no restart.
 
-## What's deferred (phase 5+)
+## What's deferred
 
-- Write-back to 3x-ui (updating user info from this service).
-- Multiple admin accounts / role-based access (currently a single account).
+Nothing is currently deferred from the original spec. Write-back to 3x-ui
+(centralized user management, syncing to the panel) is implemented — see
+`internal/users`/`internal/sync` above. Multiple admin accounts /
+role-based access is out of scope by design — single admin account is
+intentional, not a placeholder. 3x-ui's own multi-node/multi-panel
+management is likewise out of scope by design — this service talks to one
+connected panel.

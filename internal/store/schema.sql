@@ -77,3 +77,47 @@ CREATE TABLE IF NOT EXISTS routing_rules (
     updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_routing_rules_profile ON routing_rules(profile, sort_order);
+
+CREATE TABLE IF NOT EXISTS users (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    username   TEXT NOT NULL UNIQUE,
+    sub_id     TEXT NOT NULL UNIQUE,
+    uuid       TEXT NOT NULL,
+    password   TEXT NOT NULL,
+    method     TEXT NOT NULL DEFAULT 'chacha20-ietf-poly1305',
+    flow       TEXT NOT NULL DEFAULT '',
+    enabled    INTEGER NOT NULL DEFAULT 1,
+    total_gb   INTEGER NOT NULL DEFAULT 0,
+    expiry_ms  INTEGER NOT NULL DEFAULT 0,
+    notes      TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_inbounds (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    inbound_id  INTEGER NOT NULL,
+    inbound_tag TEXT NOT NULL DEFAULT '',
+    protocol    TEXT NOT NULL DEFAULT '',
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL,
+    UNIQUE(user_id, inbound_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_inbounds_user ON user_inbounds(user_id);
+
+CREATE TABLE IF NOT EXISTS sync_jobs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         INTEGER NOT NULL,
+    inbound_id      INTEGER NOT NULL,
+    op              TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    last_error      TEXT NOT NULL DEFAULT '',
+    next_attempt_at INTEGER NOT NULL DEFAULT 0,
+    payload         TEXT NOT NULL DEFAULT '{}',
+    created_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sync_jobs_claim ON sync_jobs(status, next_attempt_at);
+CREATE INDEX IF NOT EXISTS idx_sync_jobs_user ON sync_jobs(user_id);

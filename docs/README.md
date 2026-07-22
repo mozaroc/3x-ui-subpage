@@ -6,8 +6,12 @@ changes, no direct database access on the panel side. Single native binary,
 no Docker, no runtime dependencies beyond the OS.
 
 All admin-editable content (settings, app catalog, themes, generator
-templates, per-user template assignments) lives in one SQLite database. The
-binary reads only a tiny bootstrap file to find that database.
+templates, routing rules, per-user template assignments, and user accounts
+themselves) lives in one SQLite database. The binary reads only a tiny
+bootstrap file to find that database. This service is the primary place to
+manage subscribers day to day — creating/editing/suspending users, resetting
+traffic, assigning inbounds — with every change synced out to the connected
+3x-ui panel automatically; see "Centralized user management" below.
 
 ## Quickstart
 
@@ -62,7 +66,25 @@ template profile (table `assignments`; `"default"` if unassigned).
 
 `{subId}` is the same `subId` field 3x-ui already stores per client — this
 service doesn't mint its own tokens, so existing 3x-ui subscription links
-keep working.
+keep working. Users created through `/admin/users` get their `subId`
+assigned locally and pushed to the panel by the sync worker, so the two
+are always the same value on both sides.
+
+## Centralized user management
+
+`/admin/users` is now the primary way to manage subscribers — create,
+edit, delete, suspend/reactivate, enable/disable, reset traffic, change
+expiration, change traffic limits, regenerate UUID, search/filter/sort,
+bulk operations, and assign one or more of the connected panel's inbounds
+to each user. Every change is synced out to 3x-ui automatically by a
+background worker, with retries, a self-healing conflict check, and a
+`/admin/sync` history/retry view — day-to-day user management shouldn't
+require logging into the 3x-ui web UI at all. See "Users" and "Sync" in
+[docs/CONFIGURATION.md](CONFIGURATION.md), and the "Write path" section of
+[docs/ARCHITECTURE.md](ARCHITECTURE.md) for how it's wired together.
+
+This service talks to a single connected 3x-ui panel — multi-panel/
+multi-node management is 3x-ui's own job, out of scope here by design.
 
 ## systemd
 
@@ -104,17 +126,21 @@ if you want the `-import` step above to have something to seed from.)
 
 `/admin` — single admin account (bcrypt password, server-side sessions,
 CSRF-protected forms). Covers settings, applications, themes (metadata +
-every file), generator templates (all formats/profiles/protocols), and
-per-subscriber template assignments. See
+every file), generator templates (all formats/profiles/protocols),
+routing rules, per-subscriber template assignments, and centralized user
+management (with synchronization status monitoring). See
 [docs/CONFIGURATION.md](CONFIGURATION.md).
 
 ## Phase status
 
-Phases 1-4 are complete: 3x-ui API client, subscriber resolution, Xray
+Phases 1-5 are complete: 3x-ui API client, subscriber resolution, Xray
 share-link + full config generation, Clash/Mihomo YAML generation,
 Happ/Incy config generation with an admin-editable routing-rule engine
 (GEOIP/geosite/domains/regex/CIDR/process/DNS/custom rules), HTML theme
 engine, JSON-derived application catalog, QR generation, per-subscriber
-template profile assignment — all backed by SQLite with hot reload — plus a
-full admin web UI. Write-back to 3x-ui and multiple admin accounts are
-planned for later phases — see `ARCHITECTURE.md`'s "What's deferred" section.
+template profile assignment, and centralized user management with
+automatic 3x-ui synchronization (retries, conflict self-healing, status
+monitoring) — all backed by SQLite with hot reload — plus a full admin web
+UI. Multiple admin accounts / role-based access, and 3x-ui's own
+multi-panel/multi-node management, are intentionally out of scope, not
+deferred — see `ARCHITECTURE.md`'s "What's deferred" section.

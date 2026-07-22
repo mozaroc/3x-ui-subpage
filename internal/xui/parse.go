@@ -78,7 +78,7 @@ func decodeStreamSettings(raw string) (domain.StreamSettings, error) {
 
 // decodeClients parses an inbound's Settings JSON string into a client list.
 // Protocols without a client list (e.g. dokodemo-door) simply yield none.
-func decodeClients(raw string) ([]rawClient, error) {
+func decodeClients(raw string) ([]ClientPayload, error) {
 	if raw == "" {
 		return nil, nil
 	}
@@ -112,7 +112,7 @@ func MatchedClientsBySubID(inbounds []Inbound, subID, fallbackHost string) ([]do
 			return nil, fmt.Errorf("inbound %d: %w", ib.ID, err)
 		}
 
-		var matches []rawClient
+		var matches []ClientPayload
 		for _, c := range clients {
 			if c.SubID == subID {
 				matches = append(matches, c)
@@ -167,6 +167,29 @@ func MatchedClientsBySubID(inbounds []Inbound, subID, fallbackHost string) ([]do
 	}
 
 	return out, nil
+}
+
+// FindClient returns the client entry with the given email inside the
+// inbound identified by inboundID, if any — used by the sync worker to
+// detect a drifted/pre-existing client before deciding whether to add or
+// update.
+func FindClient(inbounds []Inbound, inboundID int, email string) (ClientPayload, bool, error) {
+	for _, ib := range inbounds {
+		if ib.ID != inboundID {
+			continue
+		}
+		clients, err := decodeClients(ib.Settings)
+		if err != nil {
+			return ClientPayload{}, false, fmt.Errorf("inbound %d: %w", ib.ID, err)
+		}
+		for _, c := range clients {
+			if c.Email == email {
+				return c, true, nil
+			}
+		}
+		return ClientPayload{}, false, nil
+	}
+	return ClientPayload{}, false, nil
 }
 
 // statsByEmail indexes an inbound's ClientStats by email for O(1) lookup

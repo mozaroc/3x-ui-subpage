@@ -39,9 +39,12 @@ type ClientStat struct {
 	ExpiryTime int64  `json:"expiryTime"`
 }
 
-// rawClient is one entry of settings.clients, a superset of every
-// protocol's fields — unused fields are simply left zero-valued.
-type rawClient struct {
+// ClientPayload is one entry of settings.clients, a superset of every
+// protocol's fields — unused fields are simply left zero-valued. Used both
+// to decode the panel's client list (parse.go) and to build the settings
+// body for write calls (addClient/updateClient, below), so read and write
+// stay symmetric against one shape.
+type ClientPayload struct {
 	ID         string `json:"id"`
 	Password   string `json:"password"`
 	Method     string `json:"method"`
@@ -56,7 +59,7 @@ type rawClient struct {
 // rawSettings is the decoded form of Inbound.Settings for protocols that
 // carry a client list (vless, vmess, trojan, shadowsocks).
 type rawSettings struct {
-	Clients []rawClient `json:"clients"`
+	Clients []ClientPayload `json:"clients"`
 }
 
 // rawStreamSettings is the decoded form of Inbound.StreamSettings.

@@ -35,7 +35,9 @@ import (
 	"github.com/irazin/3x-ui-subpage/internal/logging"
 	"github.com/irazin/3x-ui-subpage/internal/resolver"
 	"github.com/irazin/3x-ui-subpage/internal/store"
+	"github.com/irazin/3x-ui-subpage/internal/sync"
 	"github.com/irazin/3x-ui-subpage/internal/theme"
+	"github.com/irazin/3x-ui-subpage/internal/users"
 	"github.com/irazin/3x-ui-subpage/internal/xui"
 )
 
@@ -112,6 +114,10 @@ func main() {
 	cachedLister := xui.NewCachedLister(xuiClient, cfg.Subscription.CacheTTL)
 	sub := resolver.New(cachedLister, cfg.Subscription.ServerHost)
 
+	usersStore := users.New(db)
+	syncStore := sync.NewStore(db)
+	syncWorker := sync.NewWorker(syncStore, xuiClient, cachedLister, cachedLister.Invalidate, logger)
+
 	deps := httpserver.Deps{
 		Logger:      logger,
 		Resolver:    sub,
@@ -132,7 +138,7 @@ func main() {
 	}
 
 	srv := httpserver.New(deps)
-	adminSrv := admin.New(db, logger)
+	adminSrv := admin.New(db, logger, usersStore, syncStore, cachedLister, sub)
 
 	root := chi.NewRouter()
 	root.Mount("/", srv.Router())
@@ -148,6 +154,8 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	go syncWorker.Run(ctx)
 
 	go func() {
 		logger.Info("listening", "addr", cfg.Server.Listen)

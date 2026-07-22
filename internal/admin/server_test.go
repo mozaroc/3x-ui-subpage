@@ -1,7 +1,9 @@
 package admin
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,11 +16,40 @@ import (
 	"github.com/irazin/3x-ui-subpage/internal/adminauth"
 	"github.com/irazin/3x-ui-subpage/internal/assignment"
 	"github.com/irazin/3x-ui-subpage/internal/config"
+	"github.com/irazin/3x-ui-subpage/internal/domain"
 	"github.com/irazin/3x-ui-subpage/internal/generator/clash"
 	"github.com/irazin/3x-ui-subpage/internal/store"
+	"github.com/irazin/3x-ui-subpage/internal/sync"
 	"github.com/irazin/3x-ui-subpage/internal/templatestore"
 	"github.com/irazin/3x-ui-subpage/internal/theme"
+	"github.com/irazin/3x-ui-subpage/internal/users"
+	"github.com/irazin/3x-ui-subpage/internal/xui"
 )
+
+// fakeInboundLister is a test double for xui.InboundLister — tests mutate
+// s.inbounds.(*fakeInboundLister).Inbounds directly since it's the same
+// package.
+type fakeInboundLister struct {
+	Inbounds []xui.Inbound
+}
+
+func (f *fakeInboundLister) ListInbounds(ctx context.Context) ([]xui.Inbound, error) {
+	return f.Inbounds, nil
+}
+
+// fakeResolver is a test double for SubscriptionResolver — always reports
+// "not found" by default; tests can swap s.resolve for a custom func-backed
+// implementation when they need live traffic/status data.
+type fakeResolver struct {
+	resolveFn func(ctx context.Context, subID string) (domain.Subscription, error)
+}
+
+func (f *fakeResolver) Resolve(ctx context.Context, subID string) (domain.Subscription, error) {
+	if f.resolveFn != nil {
+		return f.resolveFn(ctx, subID)
+	}
+	return domain.Subscription{}, errors.New("not found")
+}
 
 func newTestServer(t *testing.T) (*Server, *sql.DB) {
 	t.Helper()
@@ -33,7 +64,9 @@ func newTestServer(t *testing.T) (*Server, *sql.DB) {
 	}
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return New(db, logger), db
+	usersStore := users.New(db)
+	syncStore := sync.NewStore(db)
+	return New(db, logger, usersStore, syncStore, &fakeInboundLister{}, &fakeResolver{}), db
 }
 
 // loginAndGetCookie logs in against s.Router() and returns the resulting

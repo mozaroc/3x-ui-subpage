@@ -220,6 +220,92 @@ func (c *Client) doJSON(ctx context.Context, method, path string, out any) error
 	return fmt.Errorf("xui: %s failed after %d attempts: %w", path, c.maxAttempts, lastErr)
 }
 
+// doJSONBody performs an authenticated request carrying a JSON-encoded body
+// (nil for none), retrying on transient network errors, 5xx, and — after
+// one forced re-login — 401 responses, same as doJSON. The response's "obj"
+// field is decoded into out if non-nil.
+func (c *Client) doJSONBody(ctx context.Context, method, path string, body, out any) error {
+	if err := c.ensureLoggedIn(ctx); err != nil {
+		return err
+	}
+
+	var payload []byte
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("xui: marshal request body %s: %w", path, err)
+		}
+		payload = b
+	}
+
+	var lastErr error
+	relogged := false
+
+	for attempt := 1; attempt <= c.maxAttempts; attempt++ {
+		var bodyReader io.Reader
+		if payload != nil {
+			bodyReader = strings.NewReader(string(payload))
+		}
+		req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bodyReader)
+		if err != nil {
+			return fmt.Errorf("xui: build request %s: %w", path, err)
+		}
+		if payload != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+
+		start := time.Now()
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("xui: request %s: %w", path, err)
+			c.logger.Debug("xui: request error", "path", path, "attempt", attempt, "err", err)
+			c.sleepBackoff(ctx, attempt)
+			continue
+		}
+
+		respBody, readErr := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		c.logger.Debug("xui: request", "method", method, "path", path, "status", resp.StatusCode, "duration_ms", time.Since(start).Milliseconds())
+
+		if readErr != nil {
+			lastErr = fmt.Errorf("xui: read body %s: %w", path, readErr)
+			c.sleepBackoff(ctx, attempt)
+			continue
+		}
+
+		switch {
+		case resp.StatusCode == http.StatusUnauthorized && !relogged:
+			relogged = true
+			if err := c.relogin(ctx); err != nil {
+				return fmt.Errorf("xui: re-login after 401: %w", err)
+			}
+			continue
+		case resp.StatusCode >= 500:
+			lastErr = fmt.Errorf("xui: %s returned %d: %s", path, resp.StatusCode, respBody)
+			c.sleepBackoff(ctx, attempt)
+			continue
+		case resp.StatusCode != http.StatusOK:
+			return fmt.Errorf("xui: %s returned %d: %s", path, resp.StatusCode, respBody)
+		}
+
+		var envelope apiResponse[json.RawMessage]
+		if err := json.Unmarshal(respBody, &envelope); err != nil {
+			return fmt.Errorf("xui: decode envelope %s: %w", path, err)
+		}
+		if !envelope.Success {
+			return fmt.Errorf("xui: %s reported failure: %s", path, envelope.Msg)
+		}
+		if out != nil {
+			if err := json.Unmarshal(envelope.Obj, out); err != nil {
+				return fmt.Errorf("xui: decode obj %s: %w", path, err)
+			}
+		}
+		return nil
+	}
+
+	return fmt.Errorf("xui: %s failed after %d attempts: %w", path, c.maxAttempts, lastErr)
+}
+
 func (c *Client) sleepBackoff(ctx context.Context, attempt int) {
 	delay := c.backoff * time.Duration(attempt)
 	select {
@@ -236,4 +322,73 @@ func (c *Client) ListInbounds(ctx context.Context) ([]Inbound, error) {
 		return nil, err
 	}
 	return inbounds, nil
+}
+
+// clientSettingsBody is the JSON shape 3x-ui expects as the "settings"
+// string on addClient/updateClient calls: a single-element clients array.
+type clientSettingsBody struct {
+	Clients []ClientPayload `json:"clients"`
+}
+
+// clientIdentifier returns the value 3x-ui's updateClient/delClient routes
+// match a client by: the client's own "id" (vless/vmess uuid) if set, else
+// "password" (trojan/shadowsocks) — the same resolution order the panel's
+// own backend uses internally. There is no single universal key across
+// protocols other than email, which the panel only uses for
+// resetClientTraffic.
+func clientIdentifier(c ClientPayload) string {
+	if c.ID != "" {
+		return c.ID
+	}
+	return c.Password
+}
+
+// addClientRequest is the POST body for addClient/updateClient.
+type addClientRequest struct {
+	ID       int    `json:"id"`
+	Settings string `json:"settings"`
+}
+
+func marshalClientSettings(c ClientPayload) (string, error) {
+	b, err := json.Marshal(clientSettingsBody{Clients: []ClientPayload{c}})
+	if err != nil {
+		return "", fmt.Errorf("xui: marshal client settings: %w", err)
+	}
+	return string(b), nil
+}
+
+// AddClient creates a new client entry inside the given inbound.
+func (c *Client) AddClient(ctx context.Context, inboundID int, client ClientPayload) error {
+	settings, err := marshalClientSettings(client)
+	if err != nil {
+		return err
+	}
+	body := addClientRequest{ID: inboundID, Settings: settings}
+	return c.doJSONBody(ctx, http.MethodPost, "/panel/api/inbounds/addClient", body, nil)
+}
+
+// UpdateClient overwrites the client identified by clientIdentifier(client)
+// inside the given inbound with the new field values.
+func (c *Client) UpdateClient(ctx context.Context, inboundID int, client ClientPayload) error {
+	settings, err := marshalClientSettings(client)
+	if err != nil {
+		return err
+	}
+	body := addClientRequest{ID: inboundID, Settings: settings}
+	path := fmt.Sprintf("/panel/api/inbounds/updateClient/%s", url.PathEscape(clientIdentifier(client)))
+	return c.doJSONBody(ctx, http.MethodPost, path, body, nil)
+}
+
+// DeleteClient removes the client identified by identifier (a client's
+// "id" or "password", see clientIdentifier) from the given inbound.
+func (c *Client) DeleteClient(ctx context.Context, inboundID int, identifier string) error {
+	path := fmt.Sprintf("/panel/api/inbounds/%d/delClient/%s", inboundID, url.PathEscape(identifier))
+	return c.doJSONBody(ctx, http.MethodPost, path, nil, nil)
+}
+
+// ResetClientTraffic zeroes accumulated up/down traffic for the client with
+// the given email inside the given inbound.
+func (c *Client) ResetClientTraffic(ctx context.Context, inboundID int, email string) error {
+	path := fmt.Sprintf("/panel/api/inbounds/%d/resetClientTraffic/%s", inboundID, url.PathEscape(email))
+	return c.doJSONBody(ctx, http.MethodPost, path, nil, nil)
 }

@@ -4,37 +4,51 @@
 <div class="card">
   <h2>New template</h2>
   <form method="get" action="/admin/templates/lookup">
-    <label>Format</label>
-    <select name="format">
-      <option value="xray_link">xray_link</option>
-      <option value="xray_json">xray_json</option>
-      <option value="clash">clash</option>
-      <option value="mihomo">mihomo</option>
-    </select>
-    <label>Profile</label>
-    <input type="text" name="profile" value="default" required>
-    <label>Protocol (only for xray_link: vless/vmess/trojan/shadowsocks; leave blank otherwise)</label>
-    <input type="text" name="protocol">
-    <button class="btn btn--primary" type="submit">Create / edit</button>
+    <div class="form-grid">
+      <div class="field field--sm">
+        <label>Format</label>
+        <select name="format">
+          <option value="xray_link">xray_link</option>
+          <option value="xray_json">xray_json</option>
+          <option value="clash">clash</option>
+          <option value="mihomo">mihomo</option>
+          <option value="happ">happ</option>
+          <option value="incy">incy</option>
+        </select>
+      </div>
+      <div class="field field--sm">
+        <label>Profile</label>
+        <input type="text" name="profile" value="default" required>
+      </div>
+      <div class="field field--md">
+        <label>Protocol (xray_link only: vless/vmess/trojan/shadowsocks)</label>
+        <input type="text" name="protocol">
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn btn--primary" type="submit">Create / edit</button>
+    </div>
   </form>
 </div>
 <div class="card">
-  <table>
-    <tr><th>Format</th><th>Profile</th><th>Protocol</th><th></th></tr>
-    {{range .Data.Rows}}
-    <tr>
-      <td>{{.Format}}</td>
-      <td>{{.Profile}}</td>
-      <td>{{if .Protocol}}{{.Protocol}}{{else}}—{{end}}</td>
-      <td class="row">
-        <a class="btn btn--secondary" href="/admin/templates/{{.Format}}/{{.Profile}}/{{if .Protocol}}{{.Protocol}}{{else}}-{{end}}">Edit</a>
-        <form method="post" action="/admin/templates/{{.Format}}/{{.Profile}}/{{if .Protocol}}{{.Protocol}}{{else}}-{{end}}/delete" onsubmit="return confirm('Delete this template?');">
-          <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-          <button class="btn btn--danger" type="submit">Delete</button>
-        </form>
-      </td>
-    </tr>
-    {{end}}
-  </table>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Format</th><th>Profile</th><th>Protocol</th><th></th></tr>
+      {{range .Data.Rows}}
+      <tr>
+        <td>{{.Format}}</td>
+        <td>{{.Profile}}</td>
+        <td>{{if .Protocol}}{{.Protocol}}{{else}}—{{end}}</td>
+        <td class="row">
+          <a class="btn btn--secondary" href="/admin/templates/{{.Format}}/{{.Profile}}/{{if .Protocol}}{{.Protocol}}{{else}}-{{end}}">Edit</a>
+          <form method="post" action="/admin/templates/{{.Format}}/{{.Profile}}/{{if .Protocol}}{{.Protocol}}{{else}}-{{end}}/delete" onsubmit="return confirm('Delete this template?');">
+            <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+            <button class="btn btn--danger" type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {{end}}
+    </table>
+  </div>
 </div>
 {{end}}

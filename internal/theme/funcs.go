@@ -3,15 +3,25 @@ package theme
 import (
 	"fmt"
 	"html/template"
+	"strings"
 	"time"
 )
+
+// darkColorPrefix marks a Colors key as a dark-mode override for the
+// same-named light key (e.g. "dark-primary" overrides "primary"). This is
+// a template-layer convention only — Meta.Colors stays a plain
+// map[string]string, so a theme with no "dark-*" keys is still valid and
+// simply renders no dark-mode overrides at all.
+const darkColorPrefix = "dark-"
 
 // FuncMap returns helper functions available inside theme templates for
 // formatting traffic/expiry data.
 func FuncMap() template.FuncMap {
 	return template.FuncMap{
-		"bytesHuman": bytesHuman,
-		"dict":       dict,
+		"bytesHuman":  bytesHuman,
+		"dict":        dict,
+		"lightColors": lightColors,
+		"darkColors":  darkColors,
 		"formatDate": func(t *time.Time) string {
 			if t == nil {
 				return "Never"
@@ -29,6 +39,32 @@ func FuncMap() template.FuncMap {
 			return p
 		},
 	}
+}
+
+// lightColors returns every key in colors that isn't a dark-mode override,
+// unchanged — the palette rendered under the plain :root selector.
+func lightColors(colors map[string]string) map[string]string {
+	out := make(map[string]string, len(colors))
+	for k, v := range colors {
+		if strings.HasPrefix(k, darkColorPrefix) {
+			continue
+		}
+		out[k] = v
+	}
+	return out
+}
+
+// darkColors returns every "dark-<key>" entry in colors, with the prefix
+// stripped — the palette rendered under :root[data-theme="dark"]. Empty if
+// the theme defines no dark-mode overrides.
+func darkColors(colors map[string]string) map[string]string {
+	out := make(map[string]string)
+	for k, v := range colors {
+		if name, ok := strings.CutPrefix(k, darkColorPrefix); ok {
+			out[name] = v
+		}
+	}
+	return out
 }
 
 // dict builds a map[string]any from alternating key/value arguments, used

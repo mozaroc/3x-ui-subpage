@@ -4,9 +4,13 @@
 <div class="card">
   <form method="post" action="/admin/templates/{{.Data.Row.Format}}/{{.Data.Row.Profile}}/{{if .Data.Row.Protocol}}{{.Data.Row.Protocol}}{{else}}-{{end}}">
     <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-    <textarea name="content" spellcheck="false" style="min-height:420px">{{.Data.Row.Content}}</textarea>
-    <button class="btn btn--primary" type="submit">Save</button>
-    <a class="btn btn--secondary" href="/admin/templates">Back to list</a>
+    <div class="field field--full">
+      <textarea name="content" class="code" spellcheck="false">{{.Data.Row.Content}}</textarea>
+    </div>
+    <div class="actions">
+      <button class="btn btn--primary" type="submit">Save</button>
+      <a class="btn btn--secondary" href="/admin/templates">Back to list</a>
+    </div>
   </form>
 </div>
 {{end}}

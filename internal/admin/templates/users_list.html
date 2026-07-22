@@ -1,68 +1,97 @@
 {{define "page-users-list"}}
 <h1>Users</h1>
 {{if .Data.Error}}<div class="error">{{.Data.Error}}</div>{{end}}
-<div class="card">
+<div class="card actions">
   <a class="btn btn--primary" href="/admin/users/new">+ New user</a>
 </div>
 <div class="card">
   <form method="get" action="/admin/users">
-    <label>Search</label>
-    <input type="text" name="q" value="{{.Data.Query}}" placeholder="username or subscription id">
-    <label>Status</label>
-    <select name="status">
-      <option value="" {{if eq .Data.Status ""}}selected{{end}}>All</option>
-      <option value="enabled" {{if eq .Data.Status "enabled"}}selected{{end}}>Enabled</option>
-      <option value="disabled" {{if eq .Data.Status "disabled"}}selected{{end}}>Disabled</option>
-    </select>
-    <label>Sort by</label>
-    <select name="sort">
-      <option value="username" {{if eq .Data.SortBy "username"}}selected{{end}}>Username</option>
-      <option value="sub_id" {{if eq .Data.SortBy "sub_id"}}selected{{end}}>Subscription id</option>
-      <option value="created_at" {{if eq .Data.SortBy "created_at"}}selected{{end}}>Created</option>
-      <option value="expiry_ms" {{if eq .Data.SortBy "expiry_ms"}}selected{{end}}>Expiry</option>
-      <option value="total_gb" {{if eq .Data.SortBy "total_gb"}}selected{{end}}>Traffic limit</option>
-    </select>
-    <select name="dir">
-      <option value="asc" {{if ne .Data.SortDir "desc"}}selected{{end}}>Ascending</option>
-      <option value="desc" {{if eq .Data.SortDir "desc"}}selected{{end}}>Descending</option>
-    </select>
-    <button class="btn btn--secondary" type="submit">Apply</button>
+    <div class="form-grid">
+      <div class="field field--md">
+        <label>Search</label>
+        <input type="text" name="q" value="{{.Data.Query}}" placeholder="username or subscription id">
+      </div>
+      <div class="field field--sm">
+        <label>Status</label>
+        <select name="status">
+          <option value="" {{if eq .Data.Status ""}}selected{{end}}>All</option>
+          <option value="enabled" {{if eq .Data.Status "enabled"}}selected{{end}}>Enabled</option>
+          <option value="disabled" {{if eq .Data.Status "disabled"}}selected{{end}}>Disabled</option>
+        </select>
+      </div>
+      <div class="field field--sm">
+        <label>Sort by</label>
+        <select name="sort">
+          <option value="username" {{if eq .Data.SortBy "username"}}selected{{end}}>Username</option>
+          <option value="sub_id" {{if eq .Data.SortBy "sub_id"}}selected{{end}}>Subscription id</option>
+          <option value="created_at" {{if eq .Data.SortBy "created_at"}}selected{{end}}>Created</option>
+          <option value="expiry_ms" {{if eq .Data.SortBy "expiry_ms"}}selected{{end}}>Expiry</option>
+          <option value="total_gb" {{if eq .Data.SortBy "total_gb"}}selected{{end}}>Traffic limit</option>
+        </select>
+      </div>
+      <div class="field field--sm">
+        <label>Direction</label>
+        <select name="dir">
+          <option value="asc" {{if ne .Data.SortDir "desc"}}selected{{end}}>Ascending</option>
+          <option value="desc" {{if eq .Data.SortDir "desc"}}selected{{end}}>Descending</option>
+        </select>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn btn--secondary" type="submit">Apply</button>
+    </div>
   </form>
 </div>
 <div class="card">
   <form method="post" action="/admin/users/bulk" onsubmit="return confirm('Apply this action to every selected user?');">
     <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-    <table>
-      <tr>
-        <th></th><th>Username</th><th>Sub ID</th><th>Status</th><th>Traffic</th>
-        <th>Expiry</th><th>Inbounds</th><th>Sync</th><th></th>
-      </tr>
-      {{range .Data.Users}}
-      <tr>
-        <td><input type="checkbox" name="ids" value="{{.ID}}" style="width:auto;"></td>
-        <td><a href="/admin/users/{{.ID}}">{{.Username}}</a></td>
-        <td>{{.SubID}}</td>
-        <td>{{.Status}}</td>
-        <td>{{.TrafficUsed}} / {{.TrafficLimit}}</td>
-        <td>{{.Expiry}}</td>
-        <td title="{{.InboundTags}}">{{.InboundCount}}</td>
-        <td>{{.SyncStatus}}</td>
-        <td><a class="btn btn--secondary" href="/admin/users/{{.ID}}">Manage</a></td>
-      </tr>
-      {{end}}
-    </table>
-    <label>Bulk action</label>
-    <select name="action">
-      <option value="enable">Enable</option>
-      <option value="disable">Disable</option>
-      <option value="reset_traffic">Reset traffic</option>
-      <option value="delete">Delete</option>
-    </select>
-    <button class="btn btn--primary" type="submit">Apply to selected</button>
+    <div class="table-wrap">
+      <table>
+        <tr>
+          <th></th><th>Username</th><th>Sub ID</th><th>Status</th><th>Traffic</th>
+          <th>Expiry</th><th>Inbounds</th><th>Sync</th><th></th>
+        </tr>
+        {{range .Data.Users}}
+        <tr>
+          <td><input type="checkbox" name="ids" value="{{.ID}}" style="width:auto;"></td>
+          <td><a href="/admin/users/{{.ID}}">{{.Username}}</a></td>
+          <td class="mono">{{.SubID}}</td>
+          <td>
+            {{if eq .Status "Active"}}<span class="badge badge--success">Active</span>
+            {{else if eq .Status "Expired"}}<span class="badge badge--warning">Expired</span>
+            {{else if eq .Status "Depleted"}}<span class="badge badge--warning">Depleted</span>
+            {{else if eq .Status "Disabled"}}<span class="badge badge--danger">Disabled</span>
+            {{else}}<span class="badge">{{.Status}}</span>{{end}}
+          </td>
+          <td>{{.TrafficUsed}} / {{.TrafficLimit}}</td>
+          <td>{{.Expiry}}</td>
+          <td title="{{.InboundTags}}">{{.InboundCount}}</td>
+          <td>
+            {{if eq .SyncStatus "synced"}}<span class="badge badge--success">Synced</span>
+            {{else if eq .SyncStatus "syncing"}}<span class="badge badge--warning">Syncing&hellip;</span>
+            {{else if eq .SyncStatus "error"}}<span class="badge badge--danger">Error</span>
+            {{else}}<span class="badge">None</span>{{end}}
+          </td>
+          <td><a class="btn btn--secondary" href="/admin/users/{{.ID}}">Manage</a></td>
+        </tr>
+        {{end}}
+      </table>
+    </div>
+    <div class="actions">
+      <div class="field field--sm" style="margin:0;">
+        <select name="action">
+          <option value="enable">Enable</option>
+          <option value="disable">Disable</option>
+          <option value="reset_traffic">Reset traffic</option>
+          <option value="delete">Delete</option>
+        </select>
+      </div>
+      <button class="btn btn--primary" type="submit">Apply to selected</button>
+    </div>
   </form>
 </div>
-<div class="card">
-  Page {{.Data.Page}} of {{.Data.TotalPages}}
+<div class="card actions">
+  <span class="hint">Page {{.Data.Page}} of {{.Data.TotalPages}}</span>
   {{if gt .Data.Page 1}}<a class="btn btn--secondary" href="/admin/users?q={{.Data.Query}}&status={{.Data.Status}}&sort={{.Data.SortBy}}&dir={{.Data.SortDir}}&page={{.Data.PrevPage}}">Previous</a>{{end}}
   {{if lt .Data.Page .Data.TotalPages}}<a class="btn btn--secondary" href="/admin/users?q={{.Data.Query}}&status={{.Data.Status}}&sort={{.Data.SortBy}}&dir={{.Data.SortDir}}&page={{.Data.NextPage}}">Next</a>{{end}}
 </div>

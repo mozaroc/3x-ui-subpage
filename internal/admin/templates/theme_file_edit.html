@@ -4,9 +4,13 @@
 <div class="card">
   <form method="post" action="/admin/themes/{{.Data.Slug}}/files/{{.Data.Path}}">
     <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-    <textarea name="content" spellcheck="false" style="min-height:420px">{{.Data.Content}}</textarea>
-    <button class="btn btn--primary" type="submit">Save</button>
-    <a class="btn btn--secondary" href="/admin/themes/{{.Data.Slug}}">Back to theme</a>
+    <div class="field field--full">
+      <textarea name="content" class="code" spellcheck="false">{{.Data.Content}}</textarea>
+    </div>
+    <div class="actions">
+      <button class="btn btn--primary" type="submit">Save</button>
+      <a class="btn btn--secondary" href="/admin/themes/{{.Data.Slug}}">Back to theme</a>
+    </div>
   </form>
 </div>
 {{end}}

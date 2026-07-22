@@ -4,22 +4,48 @@
 <div class="card">
   <form method="post" action="{{if .Data.IsNew}}/admin/routing{{else}}/admin/routing/{{.Data.Rule.ID}}{{end}}">
     <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-    <label>Profile</label>
-    <input type="text" name="profile" value="{{.Data.Rule.Profile}}" required>
-    <label>Type</label>
-    <select name="type">
-      {{range .Data.Types}}<option value="{{.}}" {{if eq . $.Data.Rule.Type}}selected{{end}}>{{.}}</option>{{end}}
-    </select>
-    <label>Value (e.g. a CIDR, geosite tag, domain, regex, process name...)</label>
-    <input type="text" name="value" value="{{.Data.Rule.Value}}" required>
-    <label>Outbound (e.g. direct, block, proxy, or a custom tag)</label>
-    <input type="text" name="outbound" value="{{.Data.Rule.Outbound}}">
-    <label>Sort order</label>
-    <input type="number" name="sort_order" value="{{.Data.Rule.SortOrder}}">
-    <label><input type="checkbox" name="enabled" value="1" {{if .Data.Rule.Enabled}}checked{{end}} style="width:auto; display:inline-block;"> Enabled</label>
-    <br><br>
-    <button class="btn btn--primary" type="submit">Save</button>
-    <a class="btn btn--secondary" href="/admin/routing">Cancel</a>
+
+    <div class="form-section">
+      <div class="form-grid">
+        <div class="field field--md">
+          <label>Profile</label>
+          <input type="text" name="profile" value="{{.Data.Rule.Profile}}" required>
+        </div>
+        <div class="field field--sm">
+          <label>Type</label>
+          <select name="type">
+            {{range .Data.Types}}<option value="{{.}}" {{if eq . $.Data.Rule.Type}}selected{{end}}>{{.}}</option>{{end}}
+          </select>
+        </div>
+        <div class="field field--sm">
+          <label>Sort order</label>
+          <input type="number" name="sort_order" value="{{.Data.Rule.SortOrder}}">
+        </div>
+        <div class="field field--full">
+          <label>Value (e.g. a CIDR, geosite tag, domain, regex, process name...)</label>
+          <input type="text" name="value" value="{{.Data.Rule.Value}}" required>
+        </div>
+        <div class="field field--md">
+          <label>Outbound (e.g. direct, block, proxy, or a custom tag)</label>
+          <input type="text" name="outbound" value="{{.Data.Rule.Outbound}}">
+        </div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="switch-field">
+        <span class="switch">
+          <input type="checkbox" name="enabled" value="1" {{if .Data.Rule.Enabled}}checked{{end}}>
+          <span class="track"></span>
+        </span>
+        <label>Enabled</label>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn--primary" type="submit">Save</button>
+      <a class="btn btn--secondary" href="/admin/routing">Cancel</a>
+    </div>
   </form>
 </div>
 {{end}}

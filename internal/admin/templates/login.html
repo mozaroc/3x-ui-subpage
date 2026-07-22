@@ -1,13 +1,30 @@
 {{define "page-login"}}
-<div class="card" style="max-width: 360px; margin: 60px auto;">
-  <h1>Sign in</h1>
-  {{if .Data.Error}}<div class="error">{{.Data.Error}}</div>{{end}}
-  <form method="post" action="/admin/login">
-    <label>Username</label>
-    <input type="text" name="username" autofocus required>
-    <label>Password</label>
-    <input type="password" name="password" required>
-    <button class="btn btn--primary" type="submit">Sign in</button>
-  </form>
+<div class="login-shell">
+  <div class="card login-card">
+    <h1 class="login-title">Sign in</h1>
+    <p class="hint login-subtitle">3x-ui Subscription Service admin</p>
+    {{if .Data.Error}}<div class="error">{{.Data.Error}}</div>{{end}}
+    <form method="post" action="/admin/login">
+      <div class="form-section">
+        <div class="field field--full">
+          <label>Username</label>
+          <input type="text" name="username" autofocus required>
+        </div>
+        <div class="field field--full" style="margin-top:14px;">
+          <label>Password</label>
+          <input type="password" name="password" required>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn btn--primary" type="submit" style="width:100%;justify-content:center;">Sign in</button>
+      </div>
+    </form>
+  </div>
 </div>
+<style>
+  .login-shell { display: flex; justify-content: center; padding-top: 8vh; }
+  .login-card { max-width: 360px; width: 100%; }
+  .login-title { margin-bottom: 4px; }
+  .login-subtitle { margin: 0 0 20px; }
+</style>
 {{end}}

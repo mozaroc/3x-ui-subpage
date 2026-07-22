@@ -7,11 +7,31 @@
   <title>{{.Theme.Name}} — Subscription</title>
   <link rel="icon" href="{{.Theme.Favicon}}">
   <link rel="stylesheet" href="/assets/{{.Theme.Slug}}/css/style.css">
+  <script>
+    (function () {
+      var KEY = "3xui-subpage-theme";
+      var stored = null;
+      try { stored = localStorage.getItem(KEY); } catch (e) {}
+      var system = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", stored || system);
+      document.addEventListener("click", function (e) {
+        var btn = e.target.closest("[data-theme-toggle]");
+        if (!btn) return;
+        var next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+        document.documentElement.setAttribute("data-theme", next);
+        try { localStorage.setItem(KEY, next); } catch (e) {}
+      });
+    })();
+  </script>
   <style>
     :root {
-      {{range $k, $v := .Theme.Colors}}--color-{{$k}}: {{$v}};
+      {{range $k, $v := lightColors .Theme.Colors}}--color-{{$k}}: {{$v}};
       {{end}}--font-body: {{index .Theme.Fonts "body"}};
       --font-mono: {{index .Theme.Fonts "mono"}};
+    }
+    :root[data-theme="dark"] {
+      {{range $k, $v := darkColors .Theme.Colors}}--color-{{$k}}: {{$v}};
+      {{end}}
     }
   </style>
 </head>

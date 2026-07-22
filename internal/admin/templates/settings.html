@@ -6,8 +6,12 @@
   <h2>{{.Key}}</h2>
   <form method="post" action="/admin/settings/{{.Key}}">
     <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-    <textarea name="value" spellcheck="false">{{.Value}}</textarea>
-    <button class="btn btn--primary" type="submit">Save</button>
+    <div class="field field--full">
+      <textarea name="value" class="code" spellcheck="false">{{.Value}}</textarea>
+    </div>
+    <div class="actions">
+      <button class="btn btn--primary" type="submit">Save</button>
+    </div>
   </form>
 </div>
 {{end}}

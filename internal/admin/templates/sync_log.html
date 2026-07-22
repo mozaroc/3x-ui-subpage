@@ -1,28 +1,34 @@
 {{define "page-sync-log"}}
 <h1>Synchronization status</h1>
-<p>Most recent 200 sync jobs across every user, newest first.</p>
+<p class="hint">Most recent 200 sync jobs across every user, newest first.</p>
 <div class="card">
-  <table>
-    <tr><th>Time</th><th>User</th><th>Inbound</th><th>Op</th><th>Status</th><th>Attempts</th><th>Error</th><th></th></tr>
-    {{range .Data.Jobs}}
-    <tr>
-      <td>{{.UpdatedAt}}</td>
-      <td><a href="/admin/users/{{.UserID}}">{{.Email}}</a></td>
-      <td>{{.InboundID}}</td>
-      <td>{{.Op}}</td>
-      <td>{{.Status}}</td>
-      <td>{{.Attempts}}</td>
-      <td>{{.LastError}}</td>
-      <td>
-        {{if eq .Status "failed"}}
-        <form method="post" action="/admin/sync/{{.ID}}/retry">
-          <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-          <button class="btn btn--secondary" type="submit">Retry</button>
-        </form>
-        {{end}}
-      </td>
-    </tr>
-    {{end}}
-  </table>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Time</th><th>User</th><th>Inbound</th><th>Op</th><th>Status</th><th>Attempts</th><th class="wrap">Error</th><th></th></tr>
+      {{range .Data.Jobs}}
+      <tr>
+        <td>{{.UpdatedAt}}</td>
+        <td><a href="/admin/users/{{.UserID}}">{{.Email}}</a></td>
+        <td>{{.InboundID}}</td>
+        <td>{{.Op}}</td>
+        <td>
+          {{if eq .Status "success"}}<span class="badge badge--success">Success</span>
+          {{else if eq .Status "failed"}}<span class="badge badge--danger">Failed</span>
+          {{else}}<span class="badge badge--warning">{{.Status}}</span>{{end}}
+        </td>
+        <td>{{.Attempts}}</td>
+        <td class="wrap">{{.LastError}}</td>
+        <td>
+          {{if eq .Status "failed"}}
+          <form method="post" action="/admin/sync/{{.ID}}/retry">
+            <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+            <button class="btn btn--secondary" type="submit">Retry</button>
+          </form>
+          {{end}}
+        </td>
+      </tr>
+      {{end}}
+    </table>
+  </div>
 </div>
 {{end}}

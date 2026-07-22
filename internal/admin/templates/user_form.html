@@ -4,24 +4,61 @@
 <div class="card">
   <form method="post" action="/admin/users">
     <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-    <label>Username (also the panel client's "email")</label>
-    <input type="text" name="username" required>
-    <label>Subscription id (the /sub/&#123;subId&#125; token)</label>
-    <input type="text" name="sub_id" required>
-    <label>Vless flow (optional, e.g. xtls-rprx-vision)</label>
-    <input type="text" name="flow">
-    <label>Shadowsocks method</label>
-    <input type="text" name="method" value="chacha20-ietf-poly1305">
-    <label>Traffic limit (GB, blank = unlimited)</label>
-    <input type="text" name="total_gb" placeholder="unlimited">
-    <label>Expiry (YYYY-MM-DD, blank = never)</label>
-    <input type="text" name="expiry" placeholder="never">
-    <label>Notes</label>
-    <textarea name="notes" rows="3"></textarea>
-    <br><br>
-    <button class="btn btn--primary" type="submit">Create</button>
-    <a class="btn btn--secondary" href="/admin/users">Cancel</a>
+
+    <div class="form-section">
+      <div class="form-section__title">Identity</div>
+      <div class="form-grid">
+        <div class="field field--md">
+          <label>Username (also the panel client's "email")</label>
+          <input type="text" name="username" required>
+        </div>
+        <div class="field field--md">
+          <label>Subscription id (the /sub/&#123;subId&#125; token)</label>
+          <input type="text" name="sub_id" required>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="form-section__title">Protocol</div>
+      <div class="form-grid">
+        <div class="field field--md">
+          <label>Vless flow (optional, e.g. xtls-rprx-vision)</label>
+          <input type="text" name="flow">
+        </div>
+        <div class="field field--md">
+          <label>Shadowsocks method</label>
+          <input type="text" name="method" value="chacha20-ietf-poly1305">
+        </div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="form-section__title">Limits</div>
+      <div class="form-grid">
+        <div class="field field--sm">
+          <label>Traffic limit (GB)</label>
+          <input type="text" name="total_gb" placeholder="unlimited">
+        </div>
+        <div class="field field--sm">
+          <label>Expiry (YYYY-MM-DD)</label>
+          <input type="text" name="expiry" placeholder="never">
+        </div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="form-section__title">Notes</div>
+      <div class="field field--full">
+        <textarea name="notes" rows="3"></textarea>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn--primary" type="submit">Create</button>
+      <a class="btn btn--secondary" href="/admin/users">Cancel</a>
+    </div>
   </form>
+  <p class="hint">uuid/password/inbound assignment are set after creation, on the user's detail page.</p>
 </div>
-<p>uuid/password/inbound assignment are set after creation, on the user's detail page.</p>
 {{end}}

@@ -3,17 +3,25 @@
 {{if .Data.Error}}<div class="error">{{.Data.Error}}</div>{{end}}
 <div class="card">
   <form method="get" action="/admin/themes/lookup">
-    <label>New or existing theme slug</label>
-    <input type="text" name="slug" placeholder="gaming" required>
-    <button class="btn btn--primary" type="submit">Create / edit</button>
+    <div class="form-grid">
+      <div class="field field--md">
+        <label>New or existing theme slug</label>
+        <input type="text" name="slug" placeholder="gaming" required>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn btn--primary" type="submit">Create / edit</button>
+    </div>
   </form>
 </div>
 <div class="card">
-  <table>
-    <tr><th>Slug</th><th></th></tr>
-    {{range .Data.Slugs}}
-    <tr><td>{{.}}</td><td><a class="btn btn--secondary" href="/admin/themes/{{.}}">Edit</a></td></tr>
-    {{end}}
-  </table>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Slug</th><th></th></tr>
+      {{range .Data.Slugs}}
+      <tr><td>{{.}}</td><td><a class="btn btn--secondary" href="/admin/themes/{{.}}">Edit</a></td></tr>
+      {{end}}
+    </table>
+  </div>
 </div>
 {{end}}

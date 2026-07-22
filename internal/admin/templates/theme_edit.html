@@ -5,47 +5,80 @@
   <h2>Metadata</h2>
   <form method="post" action="/admin/themes/{{.Data.Slug}}">
     <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-    <label>Name</label>
-    <input type="text" name="name" value="{{.Data.Meta.Name}}">
-    <label>Description</label>
-    <input type="text" name="description" value="{{.Data.Meta.Description}}">
-    <label>Logo URL</label>
-    <input type="text" name="logo" value="{{.Data.Meta.Logo}}">
-    <label>Favicon URL</label>
-    <input type="text" name="favicon" value="{{.Data.Meta.Favicon}}">
-    <label>Colors (JSON object)</label>
-    <textarea name="colors" spellcheck="false" style="min-height:100px">{{.Data.ColorsJSON}}</textarea>
-    <label>Fonts (JSON object)</label>
-    <textarea name="fonts" spellcheck="false" style="min-height:80px">{{.Data.FontsJSON}}</textarea>
-    <button class="btn btn--primary" type="submit">Save</button>
+
+    <div class="form-section">
+      <div class="form-grid">
+        <div class="field field--md">
+          <label>Name</label>
+          <input type="text" name="name" value="{{.Data.Meta.Name}}">
+        </div>
+        <div class="field field--md">
+          <label>Description</label>
+          <input type="text" name="description" value="{{.Data.Meta.Description}}">
+        </div>
+        <div class="field field--md">
+          <label>Logo URL</label>
+          <input type="text" name="logo" value="{{.Data.Meta.Logo}}">
+        </div>
+        <div class="field field--md">
+          <label>Favicon URL</label>
+          <input type="text" name="favicon" value="{{.Data.Meta.Favicon}}">
+        </div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="form-grid">
+        <div class="field field--full">
+          <label>Colors (JSON object — add "dark-&lt;key&gt;" entries for dark-mode overrides)</label>
+          <textarea name="colors" class="code" spellcheck="false" style="min-height:160px">{{.Data.ColorsJSON}}</textarea>
+        </div>
+        <div class="field field--full">
+          <label>Fonts (JSON object)</label>
+          <textarea name="fonts" class="code" spellcheck="false" style="min-height:100px">{{.Data.FontsJSON}}</textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn--primary" type="submit">Save</button>
+    </div>
   </form>
 </div>
 
 {{if not .Data.IsNew}}
 <div class="card">
   <h2>Files</h2>
-  <table>
-    <tr><th>Path</th><th></th></tr>
-    {{range .Data.Files}}
-    <tr>
-      <td>{{.}}</td>
-      <td class="row">
-        <a class="btn btn--secondary" href="/admin/themes/{{$.Data.Slug}}/files/{{.}}">Edit</a>
-        <form method="post" action="/admin/themes/{{$.Data.Slug}}/files-delete/{{.}}" onsubmit="return confirm('Delete {{.}}?');">
-          <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-          <button class="btn btn--danger" type="submit">Delete</button>
-        </form>
-      </td>
-    </tr>
-    {{end}}
-  </table>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Path</th><th></th></tr>
+      {{range .Data.Files}}
+      <tr>
+        <td class="mono">{{.}}</td>
+        <td class="row">
+          <a class="btn btn--secondary" href="/admin/themes/{{$.Data.Slug}}/files/{{.}}">Edit</a>
+          <form method="post" action="/admin/themes/{{$.Data.Slug}}/files-delete/{{.}}" onsubmit="return confirm('Delete {{.}}?');">
+            <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+            <button class="btn btn--danger" type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {{end}}
+    </table>
+  </div>
 </div>
 <div class="card">
   <h2>Add file</h2>
   <form method="get" action="/admin/themes/{{.Data.Slug}}/files/lookup">
-    <label>Path (e.g. partials/header.html, static/css/style.css)</label>
-    <input type="text" name="path" placeholder="static/css/style.css" required>
-    <button class="btn btn--primary" type="submit">Create / edit</button>
+    <div class="form-grid">
+      <div class="field field--md">
+        <label>Path (e.g. partials/header.html, static/css/style.css)</label>
+        <input type="text" name="path" placeholder="static/css/style.css" required>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn btn--primary" type="submit">Create / edit</button>
+    </div>
   </form>
 </div>
 {{end}}

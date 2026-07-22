@@ -20,8 +20,12 @@ shortcut that skips the bootstrap file entirely (useful for quick local
 testing).
 
 `xui` and `subscription` settings have no safe default and must be filled in
-via **Settings** before the service is useful — the panel's URL/credentials
-and this service's own public subscription URL.
+via **Settings** before the service is useful — the panel's URL/API key and
+this service's own public subscription URL. The API key comes from the
+panel's own UI: **Settings → Security → API Token**; the service sends it as
+`Authorization: Bearer <api_key>` on every request. There is no
+username/password/session-login option — the panel's REST API is
+bearer-token-only.
 
 ## Admin UI (`/admin`)
 
@@ -70,7 +74,9 @@ and this service's own public subscription URL.
   assigned to, regardless of that inbound's protocol — unused fields are
   simply ignored by protocols that don't need them. "Regenerate UUID"
   rotates both the uuid *and* the trojan/shadowsocks password together,
-  since they're the equivalent credential for those protocols.
+  since they're the equivalent credential for those protocols — **but see
+  the verified caveat below: on the 3x-ui version this was tested against,
+  the panel only actually honors the *password* half of that rotation.**
 - **Sync** (`/admin/sync`, and the sync history on each user's detail page)
   — every push to 3x-ui is queued, retried with backoff on failure
   (terminally failed after 8 attempts, manually retriable from either
@@ -78,12 +84,32 @@ and this service's own public subscription URL.
   "Synced" (every assignment's latest push succeeded), "Syncing…" (a push
   is queued/in flight), "Sync error" (the latest push for at least one
   assignment failed — click through to see why and retry), or "Not synced"
-  (no inbounds assigned yet, nothing to push). **Because the write API
-  (`addClient`/`updateClient`/`delClient`/`resetClientTraffic`) is
-  community-documented rather than officially versioned, and its client
-  identifier is resolved as `id`-else-`password` — see `ARCHITECTURE.md`
-  — verify one create and one edit against your real panel/fork before
-  relying on this for production traffic.**
+  (no inbounds assigned yet, nothing to push).
+
+  This integration was verified against a live 3x-ui **3.5.0** instance's
+  own `/panel/api/clients/*` management API (documented at
+  `{base_url}/panel/api-docs` once logged into the panel), keyed uniformly
+  by client **email** — see `ARCHITECTURE.md` for the endpoint mapping.
+  Two things confirmed empirically against that instance, worth knowing
+  before you rely on this in production:
+  - **The client's `uuid` is immutable once created** — the panel silently
+    ignores any `uuid` sent on create *or* update and always keeps the
+    value it generated itself. "Regenerate UUID" therefore has no visible
+    effect for vless/vmess users on this panel version (their real,
+    currently-active uuid is still whatever the panel assigned — the
+    subscription page and generated configs always reflect that live
+    value correctly, since they're read straight from the panel, not from
+    this service's local copy — only the *local* record is stale). The
+    `password` field (trojan/shadowsocks) **is** honored on update, so
+    regeneration works fully for those protocols.
+  - **`subId` is honored on create** — the subscription token you assign
+    in this service's Users UI is what actually ends up on the panel, so
+    `/sub/{subId}` links keep working as expected.
+
+  If you're running a different 3x-ui version or fork, its API may differ
+  from the above — check `{base_url}/panel/api-docs` (log into the panel
+  first; it's session-gated) and verify one create and one edit before
+  relying on this for production traffic.
 
 Login is a single admin account (bcrypt password, server-side session,
 12h TTL, CSRF-protected forms, secure cookies). There's only one account —
@@ -94,7 +120,7 @@ Login is a single admin account (bcrypt password, server-side session,
 | Section | Fields |
 |---|---|
 | `server` | `listen`, `read_timeout`, `write_timeout`, `idle_timeout` |
-| `xui` (required) | `base_url`, `username`, `password`, `base_path`, `timeout`, `retry.max_attempts`, `retry.backoff`, `insecure_skip_verify` |
+| `xui` (required) | `base_url`, `api_key`, `timeout`, `retry.max_attempts`, `retry.backoff`, `insecure_skip_verify` |
 | `subscription` (required) | `public_url`, `server_host`, `update_interval`, `cache_ttl` |
 | `theme` | `active` — which theme slug to render |
 | `qr` | `size`, `margin`, `foreground`, `background` |

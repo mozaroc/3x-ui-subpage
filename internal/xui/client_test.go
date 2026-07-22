@@ -16,103 +16,70 @@ func writeEnvelope(w http.ResponseWriter, obj any) {
 	_ = json.NewEncoder(w).Encode(apiResponse[any]{Success: true, Obj: obj})
 }
 
-func TestClient_LoginAndListInbounds(t *testing.T) {
-	var loginCalls int32
+func writeFailure(w http.ResponseWriter, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(apiResponse[any]{Success: false, Msg: msg})
+}
+
+func TestClient_SendsBearerToken(t *testing.T) {
+	var gotAuth string
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/login":
-			atomic.AddInt32(&loginCalls, 1)
-			http.SetCookie(w, &http.Cookie{Name: "session", Value: "tok"})
-			writeEnvelope(w, nil)
-		case "/panel/api/inbounds/list":
-			writeEnvelope(w, []Inbound{{ID: 1, Protocol: "vless", Enable: true}})
-		default:
-			http.NotFound(w, r)
-		}
+		gotAuth = r.Header.Get("Authorization")
+		writeEnvelope(w, []Inbound{{ID: 1, Protocol: "vless", Enable: true}})
 	}))
 	defer srv.Close()
 
-	c, err := New(srv.URL, "admin", "admin", 5*time.Second, 3, 10*time.Millisecond)
+	c, err := New(srv.URL, "test-api-key", 5*time.Second, 3, 10*time.Millisecond)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 
-	inbounds, err := c.ListInbounds(t.Context())
-	if err != nil {
+	if _, err := c.ListInbounds(t.Context()); err != nil {
 		t.Fatalf("ListInbounds: %v", err)
 	}
-	if len(inbounds) != 1 || inbounds[0].ID != 1 {
-		t.Fatalf("unexpected inbounds: %+v", inbounds)
-	}
-	if atomic.LoadInt32(&loginCalls) != 1 {
-		t.Fatalf("expected exactly 1 login call, got %d", loginCalls)
+	if gotAuth != "Bearer test-api-key" {
+		t.Fatalf("expected bearer auth header, got %q", gotAuth)
 	}
 }
 
-func TestClient_ReloginOn401(t *testing.T) {
-	var loginCalls int32
-	var listCalls int32
+func TestClient_401IsTerminalNotRetried(t *testing.T) {
+	var calls int32
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/login":
-			atomic.AddInt32(&loginCalls, 1)
-			http.SetCookie(w, &http.Cookie{Name: "session", Value: "tok"})
-			writeEnvelope(w, nil)
-		case "/panel/api/inbounds/list":
-			n := atomic.AddInt32(&listCalls, 1)
-			if n == 1 {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
-			writeEnvelope(w, []Inbound{{ID: 42, Protocol: "vless", Enable: true}})
-		default:
-			http.NotFound(w, r)
-		}
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	defer srv.Close()
 
-	c, err := New(srv.URL, "admin", "admin", 5*time.Second, 3, 10*time.Millisecond)
+	c, err := New(srv.URL, "wrong-key", 5*time.Second, 3, time.Millisecond)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 
-	inbounds, err := c.ListInbounds(t.Context())
-	if err != nil {
-		t.Fatalf("ListInbounds: %v", err)
+	if _, err := c.ListInbounds(t.Context()); err == nil {
+		t.Fatal("expected error for 401")
 	}
-	if len(inbounds) != 1 || inbounds[0].ID != 42 {
-		t.Fatalf("unexpected inbounds after relogin: %+v", inbounds)
-	}
-	if atomic.LoadInt32(&loginCalls) != 2 {
-		t.Fatalf("expected 2 login calls (initial + relogin), got %d", loginCalls)
+	if atomic.LoadInt32(&calls) != 1 {
+		t.Fatalf("expected exactly 1 call (no retry on auth failure), got %d", calls)
 	}
 }
 
 func TestClient_RetriesOn5xxThenSucceeds(t *testing.T) {
-	var listCalls int32
+	var calls int32
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/login":
-			http.SetCookie(w, &http.Cookie{Name: "session", Value: "tok"})
-			writeEnvelope(w, nil)
-		case "/panel/api/inbounds/list":
-			n := atomic.AddInt32(&listCalls, 1)
-			if n < 3 {
-				w.WriteHeader(http.StatusInternalServerError)
-				fmt.Fprint(w, "boom")
-				return
-			}
-			writeEnvelope(w, []Inbound{{ID: 7, Protocol: "vless", Enable: true}})
-		default:
-			http.NotFound(w, r)
+		n := atomic.AddInt32(&calls, 1)
+		if n < 3 {
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprint(w, "boom")
+			return
 		}
+		writeEnvelope(w, []Inbound{{ID: 7, Protocol: "vless", Enable: true}})
 	}))
 	defer srv.Close()
 
-	c, err := New(srv.URL, "admin", "admin", 5*time.Second, 5, time.Millisecond)
+	c, err := New(srv.URL, "key", 5*time.Second, 5, time.Millisecond)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -124,24 +91,18 @@ func TestClient_RetriesOn5xxThenSucceeds(t *testing.T) {
 	if len(inbounds) != 1 || inbounds[0].ID != 7 {
 		t.Fatalf("unexpected inbounds: %+v", inbounds)
 	}
-	if atomic.LoadInt32(&listCalls) != 3 {
-		t.Fatalf("expected 3 attempts, got %d", listCalls)
+	if atomic.LoadInt32(&calls) != 3 {
+		t.Fatalf("expected 3 attempts, got %d", calls)
 	}
 }
 
 func TestClient_FailsAfterMaxAttempts(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/login":
-			http.SetCookie(w, &http.Cookie{Name: "session", Value: "tok"})
-			writeEnvelope(w, nil)
-		default:
-			w.WriteHeader(http.StatusInternalServerError)
-		}
+		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer srv.Close()
 
-	c, err := New(srv.URL, "admin", "admin", 5*time.Second, 2, time.Millisecond)
+	c, err := New(srv.URL, "key", 5*time.Second, 2, time.Millisecond)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -155,107 +116,112 @@ func TestClient_AddClient(t *testing.T) {
 	var gotBody addClientRequest
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/login":
-			http.SetCookie(w, &http.Cookie{Name: "session", Value: "tok"})
-			writeEnvelope(w, nil)
-		case r.URL.Path == "/panel/api/inbounds/addClient" && r.Method == http.MethodPost:
-			if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
-				t.Errorf("decode request body: %v", err)
-			}
-			writeEnvelope(w, nil)
-		default:
+		if r.URL.Path != "/panel/api/clients/add" || r.Method != http.MethodPost {
 			http.NotFound(w, r)
+			return
 		}
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("decode request body: %v", err)
+		}
+		writeEnvelope(w, nil)
 	}))
 	defer srv.Close()
 
-	c, err := New(srv.URL, "admin", "admin", 5*time.Second, 3, 10*time.Millisecond)
+	c, err := New(srv.URL, "key", 5*time.Second, 3, 10*time.Millisecond)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 
-	client := ClientPayload{ID: "uuid-1", Email: "alice", SubID: "sub-1", Enable: true}
-	if err := c.AddClient(t.Context(), 5, client); err != nil {
+	client := ManagedClient{Email: "alice", SubID: "sub-1", UUID: "uuid-1", Enable: true}
+	if err := c.AddClient(t.Context(), client, []int{3, 5}); err != nil {
 		t.Fatalf("AddClient: %v", err)
 	}
 
-	if gotBody.ID != 5 {
-		t.Fatalf("expected inbound id 5, got %d", gotBody.ID)
+	if gotBody.Client.Email != "alice" || gotBody.Client.SubID != "sub-1" {
+		t.Fatalf("unexpected client in request: %+v", gotBody.Client)
 	}
-	var settings clientSettingsBody
-	if err := json.Unmarshal([]byte(gotBody.Settings), &settings); err != nil {
-		t.Fatalf("unmarshal settings: %v", err)
-	}
-	if len(settings.Clients) != 1 || settings.Clients[0].Email != "alice" {
-		t.Fatalf("unexpected settings clients: %+v", settings.Clients)
+	if len(gotBody.InboundIDs) != 2 || gotBody.InboundIDs[0] != 3 || gotBody.InboundIDs[1] != 5 {
+		t.Fatalf("unexpected inboundIds: %+v", gotBody.InboundIDs)
 	}
 }
 
-func TestClient_UpdateClient_UsesIDElsePassword(t *testing.T) {
+func TestClient_UpdateClient(t *testing.T) {
 	var gotPath string
+	var gotBody ManagedClient
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/login":
-			http.SetCookie(w, &http.Cookie{Name: "session", Value: "tok"})
-			writeEnvelope(w, nil)
-		case r.Method == http.MethodPost:
-			gotPath = r.URL.Path
-			writeEnvelope(w, nil)
-		default:
-			http.NotFound(w, r)
-		}
+		gotPath = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		writeEnvelope(w, nil)
 	}))
 	defer srv.Close()
 
-	c, err := New(srv.URL, "admin", "admin", 5*time.Second, 3, 10*time.Millisecond)
+	c, err := New(srv.URL, "key", 5*time.Second, 3, 10*time.Millisecond)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 
-	if err := c.UpdateClient(t.Context(), 5, ClientPayload{ID: "uuid-1", Password: "pw"}); err != nil {
+	if err := c.UpdateClient(t.Context(), ManagedClient{Email: "alice", TotalGB: 5000, Enable: true}); err != nil {
 		t.Fatalf("UpdateClient: %v", err)
 	}
-	if gotPath != "/panel/api/inbounds/updateClient/uuid-1" {
-		t.Fatalf("expected id-based path, got %s", gotPath)
+	if gotPath != "/panel/api/clients/update/alice" {
+		t.Fatalf("unexpected path: %s", gotPath)
+	}
+	if gotBody.Email != "alice" || gotBody.TotalGB != 5000 {
+		t.Fatalf("unexpected body: %+v", gotBody)
+	}
+}
+
+func TestClient_AttachAndDetachClient(t *testing.T) {
+	var gotPath string
+	var gotBody attachDetachRequest
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		writeEnvelope(w, nil)
+	}))
+	defer srv.Close()
+
+	c, err := New(srv.URL, "key", 5*time.Second, 3, 10*time.Millisecond)
+	if err != nil {
+		t.Fatalf("New: %v", err)
 	}
 
-	if err := c.UpdateClient(t.Context(), 5, ClientPayload{Password: "trojan-pw"}); err != nil {
-		t.Fatalf("UpdateClient: %v", err)
+	if err := c.AttachClient(t.Context(), "alice", []int{9}); err != nil {
+		t.Fatalf("AttachClient: %v", err)
 	}
-	if gotPath != "/panel/api/inbounds/updateClient/trojan-pw" {
-		t.Fatalf("expected password-based path when id is empty, got %s", gotPath)
+	if gotPath != "/panel/api/clients/alice/attach" || len(gotBody.InboundIDs) != 1 || gotBody.InboundIDs[0] != 9 {
+		t.Fatalf("unexpected attach request: path=%s body=%+v", gotPath, gotBody)
+	}
+
+	if err := c.DetachClient(t.Context(), "alice", []int{9}); err != nil {
+		t.Fatalf("DetachClient: %v", err)
+	}
+	if gotPath != "/panel/api/clients/alice/detach" {
+		t.Fatalf("unexpected detach path: %s", gotPath)
 	}
 }
 
 func TestClient_DeleteClient(t *testing.T) {
-	var gotPath string
+	var gotURL string
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/login":
-			http.SetCookie(w, &http.Cookie{Name: "session", Value: "tok"})
-			writeEnvelope(w, nil)
-		case r.Method == http.MethodPost:
-			gotPath = r.URL.Path
-			writeEnvelope(w, nil)
-		default:
-			http.NotFound(w, r)
-		}
+		gotURL = r.URL.String()
+		writeEnvelope(w, nil)
 	}))
 	defer srv.Close()
 
-	c, err := New(srv.URL, "admin", "admin", 5*time.Second, 3, 10*time.Millisecond)
+	c, err := New(srv.URL, "key", 5*time.Second, 3, 10*time.Millisecond)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 
-	if err := c.DeleteClient(t.Context(), 5, "uuid-1"); err != nil {
+	if err := c.DeleteClient(t.Context(), "alice"); err != nil {
 		t.Fatalf("DeleteClient: %v", err)
 	}
-	if gotPath != "/panel/api/inbounds/5/delClient/uuid-1" {
-		t.Fatalf("unexpected path: %s", gotPath)
+	if gotURL != "/panel/api/clients/del/alice?keepTraffic=0" {
+		t.Fatalf("unexpected url: %s", gotURL)
 	}
 }
 
@@ -263,64 +229,79 @@ func TestClient_ResetClientTraffic(t *testing.T) {
 	var gotPath string
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/login":
-			http.SetCookie(w, &http.Cookie{Name: "session", Value: "tok"})
-			writeEnvelope(w, nil)
-		case r.Method == http.MethodPost:
-			gotPath = r.URL.Path
-			writeEnvelope(w, nil)
-		default:
-			http.NotFound(w, r)
-		}
+		gotPath = r.URL.Path
+		writeEnvelope(w, nil)
 	}))
 	defer srv.Close()
 
-	c, err := New(srv.URL, "admin", "admin", 5*time.Second, 3, 10*time.Millisecond)
+	c, err := New(srv.URL, "key", 5*time.Second, 3, 10*time.Millisecond)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 
-	if err := c.ResetClientTraffic(t.Context(), 5, "alice"); err != nil {
+	if err := c.ResetClientTraffic(t.Context(), "alice"); err != nil {
 		t.Fatalf("ResetClientTraffic: %v", err)
 	}
-	if gotPath != "/panel/api/inbounds/5/resetClientTraffic/alice" {
+	if gotPath != "/panel/api/clients/resetTraffic/alice" {
 		t.Fatalf("unexpected path: %s", gotPath)
 	}
 }
 
-func TestClient_WriteRetriesOn5xxThenSucceeds(t *testing.T) {
-	var calls int32
-
+func TestClient_GetClient_Found(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/login":
-			http.SetCookie(w, &http.Cookie{Name: "session", Value: "tok"})
-			writeEnvelope(w, nil)
-		case r.URL.Path == "/panel/api/inbounds/addClient":
-			n := atomic.AddInt32(&calls, 1)
-			if n < 3 {
-				w.WriteHeader(http.StatusInternalServerError)
-				fmt.Fprint(w, "boom")
-				return
-			}
-			writeEnvelope(w, nil)
-		default:
-			http.NotFound(w, r)
-		}
+		writeEnvelope(w, map[string]any{
+			"client": ManagedClient{Email: "alice", UUID: "uuid-1", Enable: true},
+		})
 	}))
 	defer srv.Close()
 
-	c, err := New(srv.URL, "admin", "admin", 5*time.Second, 5, time.Millisecond)
+	c, err := New(srv.URL, "key", 5*time.Second, 3, 10*time.Millisecond)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 
-	if err := c.AddClient(t.Context(), 1, ClientPayload{ID: "uuid-1"}); err != nil {
-		t.Fatalf("AddClient: %v", err)
+	client, found, err := c.GetClient(t.Context(), "alice")
+	if err != nil {
+		t.Fatalf("GetClient: %v", err)
 	}
-	if atomic.LoadInt32(&calls) != 3 {
-		t.Fatalf("expected 3 attempts, got %d", calls)
+	if !found || client.Email != "alice" || client.UUID != "uuid-1" {
+		t.Fatalf("unexpected result: client=%+v found=%v", client, found)
+	}
+}
+
+func TestClient_GetClient_NotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeFailure(w, " (record not found)")
+	}))
+	defer srv.Close()
+
+	c, err := New(srv.URL, "key", 5*time.Second, 3, 10*time.Millisecond)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	_, found, err := c.GetClient(t.Context(), "ghost")
+	if err != nil {
+		t.Fatalf("expected no error for not-found, got %v", err)
+	}
+	if found {
+		t.Fatal("expected found=false")
+	}
+}
+
+func TestClient_GetClient_OtherFailurePropagates(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeFailure(w, "internal database error")
+	}))
+	defer srv.Close()
+
+	c, err := New(srv.URL, "key", 5*time.Second, 3, 10*time.Millisecond)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if _, _, err := c.GetClient(t.Context(), "alice"); err == nil {
+		t.Fatal("expected error to propagate for a non-not-found failure")
 	}
 }
 

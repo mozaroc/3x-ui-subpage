@@ -44,10 +44,12 @@ type RetryConfig struct {
 }
 
 type XUIConfig struct {
-	BaseURL            string        `json:"base_url"`
-	Username           string        `json:"username"`
-	Password           string        `json:"password"`
-	BasePath           string        `json:"base_path"`
+	BaseURL string `json:"base_url"`
+	// APIKey authenticates against the panel's REST API (Settings → Security
+	// → API Token in the panel's own UI), sent as "Authorization: Bearer
+	// <api_key>" on every request. Replaces the old username/password +
+	// session-cookie login flow entirely.
+	APIKey             string        `json:"api_key"`
 	Timeout            time.Duration `json:"timeout"`
 	Retry              RetryConfig   `json:"retry"`
 	InsecureSkipVerify bool          `json:"insecure_skip_verify"`
@@ -113,9 +115,8 @@ func Default() Config {
 			IdleTimeout:  60 * time.Second,
 		},
 		XUI: XUIConfig{
-			BasePath: "/",
-			Timeout:  10 * time.Second,
-			Retry:    RetryConfig{MaxAttempts: 3, Backoff: 500 * time.Millisecond},
+			Timeout: 10 * time.Second,
+			Retry:   RetryConfig{MaxAttempts: 3, Backoff: 500 * time.Millisecond},
 		},
 		Subscription: SubscriptionConfig{
 			UpdateInterval: 12 * time.Hour,
@@ -290,8 +291,8 @@ func (c Config) Validate() error {
 	if c.XUI.BaseURL == "" {
 		return fmt.Errorf("xui.base_url is required")
 	}
-	if c.XUI.Username == "" || c.XUI.Password == "" {
-		return fmt.Errorf("xui.username and xui.password are required")
+	if c.XUI.APIKey == "" {
+		return fmt.Errorf("xui.api_key is required")
 	}
 	if c.Subscription.PublicURL == "" {
 		return fmt.Errorf("subscription.public_url is required")

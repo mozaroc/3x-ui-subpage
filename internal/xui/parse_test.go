@@ -1,6 +1,9 @@
 package xui
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func sampleVlessInbound() Inbound {
 	return Inbound{
@@ -10,11 +13,32 @@ func sampleVlessInbound() Inbound {
 		Listen:         "",
 		Port:           443,
 		Protocol:       "vless",
-		Settings:       `{"clients":[{"id":"11111111-1111-1111-1111-111111111111","email":"alice","subId":"tok-abc","flow":"xtls-rprx-vision","enable":true,"totalGB":0,"expiryTime":0}]}`,
-		StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"serverNames":["example.com"],"shortIds":["abcd1234"],"settings":{"publicKey":"pubkey123","fingerprint":"chrome"}}}`,
+		Settings:       []byte(`{"clients":[{"id":"11111111-1111-1111-1111-111111111111","email":"alice","subId":"tok-abc","flow":"xtls-rprx-vision","enable":true,"totalGB":0,"expiryTime":0}]}`),
+		StreamSettings: []byte(`{"network":"tcp","security":"reality","realitySettings":{"serverNames":["example.com"],"shortIds":["abcd1234"],"settings":{"publicKey":"pubkey123","fingerprint":"chrome"}}}`),
 		ClientStats: []ClientStat{
 			{Email: "alice", Up: 1000, Down: 2000, Total: 0, ExpiryTime: 0},
 		},
+	}
+}
+
+func TestMatchedClientsBySubID_SettingsAsDoubleEncodedString(t *testing.T) {
+	ib := sampleVlessInbound()
+	// Simulate a panel that double-encodes settings/streamSettings as a JSON
+	// string (vanilla 3x-ui's convention) rather than a nested object.
+	settingsStr, _ := json.Marshal(string(ib.Settings))
+	streamStr, _ := json.Marshal(string(ib.StreamSettings))
+	ib.Settings = settingsStr
+	ib.StreamSettings = streamStr
+
+	matches, err := MatchedClientsBySubID([]Inbound{ib}, "tok-abc", "1.2.3.4")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 match even with double-encoded settings, got %d", len(matches))
+	}
+	if matches[0].Stream.TLS.PublicKey != "pubkey123" {
+		t.Fatalf("expected stream settings decoded through double-encoding, got %+v", matches[0].Stream)
 	}
 }
 

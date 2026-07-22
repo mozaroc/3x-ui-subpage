@@ -25,8 +25,8 @@ func inboundWithClient(id int, subID, email string, enable bool, totalGB, expiry
 		Enable:         true,
 		Protocol:       "vless",
 		Port:           443,
-		Settings:       `{"clients":[{"id":"uuid-` + email + `","email":"` + email + `","subId":"` + subID + `","enable":` + boolStr(enable) + `,"totalGB":` + itoa(totalGB) + `,"expiryTime":` + itoa(expiryMs) + `}]}`,
-		StreamSettings: `{"network":"tcp","security":"none"}`,
+		Settings:       []byte(`{"clients":[{"id":"uuid-` + email + `","email":"` + email + `","subId":"` + subID + `","enable":` + boolStr(enable) + `,"totalGB":` + itoa(totalGB) + `,"expiryTime":` + itoa(expiryMs) + `}]}`),
+		StreamSettings: []byte(`{"network":"tcp","security":"none"}`),
 		ClientStats: []xui.ClientStat{
 			{Email: email, Up: up, Down: down},
 		},

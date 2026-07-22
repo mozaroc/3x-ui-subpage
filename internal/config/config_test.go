@@ -31,7 +31,7 @@ func insertSetting(t *testing.T, db *sql.DB, key, value string) {
 
 func TestLoadFromDB_DefaultsWhenNoRows(t *testing.T) {
 	db := openTestDB(t)
-	insertSetting(t, db, "xui", `{"base_url":"http://127.0.0.1:2053","username":"admin","password":"admin"}`)
+	insertSetting(t, db, "xui", `{"base_url":"http://127.0.0.1:2053","api_key":"test-api-key"}`)
 	insertSetting(t, db, "subscription", `{"public_url":"https://sub.example.com","server_host":"vpn.example.com"}`)
 
 	cfg, err := LoadFromDB(db)
@@ -51,7 +51,7 @@ func TestLoadFromDB_DefaultsWhenNoRows(t *testing.T) {
 
 func TestLoadFromDB_OverlaysStoredSections(t *testing.T) {
 	db := openTestDB(t)
-	insertSetting(t, db, "xui", `{"base_url":"http://127.0.0.1:2053","username":"admin","password":"admin"}`)
+	insertSetting(t, db, "xui", `{"base_url":"http://127.0.0.1:2053","api_key":"test-api-key"}`)
 	insertSetting(t, db, "subscription", `{"public_url":"https://sub.example.com","server_host":"vpn.example.com"}`)
 	insertSetting(t, db, "server", `{"listen":"127.0.0.1:9999"}`)
 	insertSetting(t, db, "theme", `{"active":"gaming"}`)
@@ -81,7 +81,7 @@ func TestLoadFromDB_MissingRequiredFieldsFails(t *testing.T) {
 
 func TestLoadFromDB_UnknownKeyIgnored(t *testing.T) {
 	db := openTestDB(t)
-	insertSetting(t, db, "xui", `{"base_url":"http://127.0.0.1:2053","username":"admin","password":"admin"}`)
+	insertSetting(t, db, "xui", `{"base_url":"http://127.0.0.1:2053","api_key":"test-api-key"}`)
 	insertSetting(t, db, "subscription", `{"public_url":"https://sub.example.com","server_host":"vpn.example.com"}`)
 	insertSetting(t, db, "some_future_section", `{"whatever":"value"}`)
 

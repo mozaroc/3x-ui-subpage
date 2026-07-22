@@ -101,7 +101,7 @@ func main() {
 	logger.Info("starting subscription-service", "version", version, "listen", cfg.Server.Listen, "db", resolvedDBPath)
 
 	xuiClient, err := xui.New(
-		cfg.XUI.BaseURL, cfg.XUI.Username, cfg.XUI.Password,
+		cfg.XUI.BaseURL, cfg.XUI.APIKey,
 		cfg.XUI.Timeout, cfg.XUI.Retry.MaxAttempts, cfg.XUI.Retry.Backoff,
 		xui.WithLogger(logger),
 		xui.WithInsecureSkipVerify(cfg.XUI.InsecureSkipVerify),
@@ -116,7 +116,7 @@ func main() {
 
 	usersStore := users.New(db)
 	syncStore := sync.NewStore(db)
-	syncWorker := sync.NewWorker(syncStore, xuiClient, cachedLister, cachedLister.Invalidate, logger)
+	syncWorker := sync.NewWorker(syncStore, xuiClient, cachedLister.Invalidate, logger)
 
 	deps := httpserver.Deps{
 		Logger:      logger,

@@ -1,6 +1,7 @@
 package xui
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 
@@ -23,15 +24,34 @@ func connectHost(inbound Inbound, fallback string) string {
 	return inbound.Listen
 }
 
-// decodeStreamSettings parses an inbound's StreamSettings JSON string into a
-// normalized domain.StreamSettings.
-func decodeStreamSettings(raw string) (domain.StreamSettings, error) {
-	if raw == "" {
-		return domain.StreamSettings{Network: domain.NetworkTCP, Security: domain.SecurityNone}, nil
+// unmarshalFlexible decodes raw into out, whether raw holds the target value
+// directly (a JSON object, this project's own 3.5.0 test panel's
+// convention) or as a JSON string containing that value's JSON text
+// (double-encoded — vanilla 3x-ui's convention, and possibly other forks).
+// Empty/null input leaves out untouched.
+func unmarshalFlexible(raw json.RawMessage, out any) error {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
+		return nil
 	}
+	if trimmed[0] == '"' {
+		var s string
+		if err := json.Unmarshal(trimmed, &s); err != nil {
+			return err
+		}
+		if s == "" {
+			return nil
+		}
+		return json.Unmarshal([]byte(s), out)
+	}
+	return json.Unmarshal(trimmed, out)
+}
 
+// decodeStreamSettings parses an inbound's StreamSettings into a normalized
+// domain.StreamSettings.
+func decodeStreamSettings(raw json.RawMessage) (domain.StreamSettings, error) {
 	var rs rawStreamSettings
-	if err := json.Unmarshal([]byte(raw), &rs); err != nil {
+	if err := unmarshalFlexible(raw, &rs); err != nil {
 		return domain.StreamSettings{}, fmt.Errorf("decode streamSettings: %w", err)
 	}
 
@@ -76,14 +96,11 @@ func decodeStreamSettings(raw string) (domain.StreamSettings, error) {
 	return ss, nil
 }
 
-// decodeClients parses an inbound's Settings JSON string into a client list.
-// Protocols without a client list (e.g. dokodemo-door) simply yield none.
-func decodeClients(raw string) ([]ClientPayload, error) {
-	if raw == "" {
-		return nil, nil
-	}
+// decodeClients parses an inbound's Settings into a client list. Protocols
+// without a client list (e.g. dokodemo-door) simply yield none.
+func decodeClients(raw json.RawMessage) ([]EmbeddedClient, error) {
 	var s rawSettings
-	if err := json.Unmarshal([]byte(raw), &s); err != nil {
+	if err := unmarshalFlexible(raw, &s); err != nil {
 		return nil, fmt.Errorf("decode settings: %w", err)
 	}
 	return s.Clients, nil
@@ -112,7 +129,7 @@ func MatchedClientsBySubID(inbounds []Inbound, subID, fallbackHost string) ([]do
 			return nil, fmt.Errorf("inbound %d: %w", ib.ID, err)
 		}
 
-		var matches []ClientPayload
+		var matches []EmbeddedClient
 		for _, c := range clients {
 			if c.SubID == subID {
 				matches = append(matches, c)
@@ -167,29 +184,6 @@ func MatchedClientsBySubID(inbounds []Inbound, subID, fallbackHost string) ([]do
 	}
 
 	return out, nil
-}
-
-// FindClient returns the client entry with the given email inside the
-// inbound identified by inboundID, if any — used by the sync worker to
-// detect a drifted/pre-existing client before deciding whether to add or
-// update.
-func FindClient(inbounds []Inbound, inboundID int, email string) (ClientPayload, bool, error) {
-	for _, ib := range inbounds {
-		if ib.ID != inboundID {
-			continue
-		}
-		clients, err := decodeClients(ib.Settings)
-		if err != nil {
-			return ClientPayload{}, false, fmt.Errorf("inbound %d: %w", ib.ID, err)
-		}
-		for _, c := range clients {
-			if c.Email == email {
-				return c, true, nil
-			}
-		}
-		return ClientPayload{}, false, nil
-	}
-	return ClientPayload{}, false, nil
 }
 
 // statsByEmail indexes an inbound's ClientStats by email for O(1) lookup

@@ -37,7 +37,8 @@ $EDITOR bootstrap.yaml   # set database.path
 
 Then open `http://localhost:8080/admin`, log in, and fill in **Settings →
 xui** and **Settings → subscription** — those two have no safe default
-(panel URL/credentials, and this service's own public subscription URL).
+(panel URL + API key — from the panel's own Settings → Security → API
+Token — and this service's own public subscription URL).
 Everything else (applications, themes, templates, per-subscriber
 assignments) is editable from the same admin UI.
 

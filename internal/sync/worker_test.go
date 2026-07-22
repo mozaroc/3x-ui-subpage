@@ -16,64 +16,71 @@ func testLogger() *slog.Logger {
 }
 
 type fakeWriter struct {
+	getCalls    int32
 	addCalls    int32
+	attachCalls int32
 	updateCalls int32
-	deleteCalls int32
+	detachCalls int32
 	resetCalls  int32
 
 	failAdd    bool
 	failUpdate bool
 
-	lastInboundID int
-	lastPayload   xui.ClientPayload
-	lastIdent     string
-	lastEmail     string
+	existingEmails map[string]bool // GetClient reports these as found
+
+	lastInboundIDs []int
+	lastClient     xui.ManagedClient
+	lastEmail      string
 }
 
-func (f *fakeWriter) AddClient(ctx context.Context, inboundID int, c xui.ClientPayload) error {
+func (f *fakeWriter) GetClient(ctx context.Context, email string) (xui.ManagedClient, bool, error) {
+	atomic.AddInt32(&f.getCalls, 1)
+	if f.existingEmails[email] {
+		return xui.ManagedClient{Email: email}, true, nil
+	}
+	return xui.ManagedClient{}, false, nil
+}
+
+func (f *fakeWriter) AddClient(ctx context.Context, client xui.ManagedClient, inboundIDs []int) error {
 	atomic.AddInt32(&f.addCalls, 1)
-	f.lastInboundID = inboundID
-	f.lastPayload = c
+	f.lastClient = client
+	f.lastInboundIDs = inboundIDs
 	if f.failAdd {
 		return errors.New("add failed")
 	}
 	return nil
 }
 
-func (f *fakeWriter) UpdateClient(ctx context.Context, inboundID int, c xui.ClientPayload) error {
+func (f *fakeWriter) AttachClient(ctx context.Context, email string, inboundIDs []int) error {
+	atomic.AddInt32(&f.attachCalls, 1)
+	f.lastEmail = email
+	f.lastInboundIDs = inboundIDs
+	return nil
+}
+
+func (f *fakeWriter) UpdateClient(ctx context.Context, client xui.ManagedClient) error {
 	atomic.AddInt32(&f.updateCalls, 1)
-	f.lastInboundID = inboundID
-	f.lastPayload = c
+	f.lastClient = client
 	if f.failUpdate {
 		return errors.New("update failed")
 	}
 	return nil
 }
 
-func (f *fakeWriter) DeleteClient(ctx context.Context, inboundID int, identifier string) error {
-	atomic.AddInt32(&f.deleteCalls, 1)
-	f.lastInboundID = inboundID
-	f.lastIdent = identifier
+func (f *fakeWriter) DetachClient(ctx context.Context, email string, inboundIDs []int) error {
+	atomic.AddInt32(&f.detachCalls, 1)
+	f.lastEmail = email
+	f.lastInboundIDs = inboundIDs
 	return nil
 }
 
-func (f *fakeWriter) ResetClientTraffic(ctx context.Context, inboundID int, email string) error {
+func (f *fakeWriter) ResetClientTraffic(ctx context.Context, email string) error {
 	atomic.AddInt32(&f.resetCalls, 1)
-	f.lastInboundID = inboundID
 	f.lastEmail = email
 	return nil
 }
 
-type fakeLister struct {
-	inbounds []xui.Inbound
-	err      error
-}
-
-func (f *fakeLister) ListInbounds(ctx context.Context) ([]xui.Inbound, error) {
-	return f.inbounds, f.err
-}
-
-func TestWorker_AssignSucceeds(t *testing.T) {
+func TestWorker_AssignCreatesClientWhenNew(t *testing.T) {
 	db := openTestDB(t)
 	s := NewStore(db)
 	writer := &fakeWriter{}
@@ -84,14 +91,17 @@ func TestWorker_AssignSucceeds(t *testing.T) {
 	}
 
 	var invalidated bool
-	w := NewWorker(s, writer, nil, func() { invalidated = true }, testLogger())
+	w := NewWorker(s, writer, func() { invalidated = true }, testLogger())
 	w.Tick(t.Context())
 
 	if atomic.LoadInt32(&writer.addCalls) != 1 {
 		t.Fatalf("expected 1 AddClient call, got %d", writer.addCalls)
 	}
-	if writer.lastPayload.Email != "alice" || writer.lastPayload.SubID != "sub-1" {
-		t.Fatalf("unexpected payload pushed: %+v", writer.lastPayload)
+	if writer.lastClient.Email != "alice" || writer.lastClient.SubID != "sub-1" {
+		t.Fatalf("unexpected client pushed: %+v", writer.lastClient)
+	}
+	if len(writer.lastInboundIDs) != 1 || writer.lastInboundIDs[0] != 10 {
+		t.Fatalf("expected inboundIDs=[10], got %v", writer.lastInboundIDs)
 	}
 	if !invalidated {
 		t.Fatal("expected invalidate to be called on success")
@@ -106,30 +116,26 @@ func TestWorker_AssignSucceeds(t *testing.T) {
 	}
 }
 
-func TestWorker_AssignConflictSelfHealsToUpdate(t *testing.T) {
+func TestWorker_AssignAttachesWhenClientAlreadyExists(t *testing.T) {
 	db := openTestDB(t)
 	s := NewStore(db)
-	writer := &fakeWriter{}
-	lister := &fakeLister{inbounds: []xui.Inbound{
-		{
-			ID:       10,
-			Protocol: "vless",
-			Settings: `{"clients":[{"id":"existing-uuid","email":"alice","subId":"sub-1"}]}`,
-		},
-	}}
+	writer := &fakeWriter{existingEmails: map[string]bool{"alice": true}}
 
-	if _, err := s.Enqueue(1, 10, OpAssign, Payload{Email: "alice", SubID: "sub-1", UUID: "uuid-1"}); err != nil {
+	if _, err := s.Enqueue(1, 11, OpAssign, Payload{Email: "alice", SubID: "sub-1", UUID: "uuid-1"}); err != nil {
 		t.Fatalf("Enqueue: %v", err)
 	}
 
-	w := NewWorker(s, writer, lister, func() {}, testLogger())
+	w := NewWorker(s, writer, func() {}, testLogger())
 	w.Tick(t.Context())
 
 	if atomic.LoadInt32(&writer.addCalls) != 0 {
 		t.Fatalf("expected AddClient not to be called, got %d", writer.addCalls)
 	}
-	if atomic.LoadInt32(&writer.updateCalls) != 1 {
-		t.Fatalf("expected UpdateClient to self-heal the conflict, got %d", writer.updateCalls)
+	if atomic.LoadInt32(&writer.attachCalls) != 1 {
+		t.Fatalf("expected AttachClient for an already-existing client, got %d", writer.attachCalls)
+	}
+	if len(writer.lastInboundIDs) != 1 || writer.lastInboundIDs[0] != 11 {
+		t.Fatalf("expected attach to inbound 11, got %v", writer.lastInboundIDs)
 	}
 }
 
@@ -140,7 +146,7 @@ func TestWorker_RetryThenSucceed(t *testing.T) {
 
 	id, _ := s.Enqueue(1, 10, OpAssign, Payload{Email: "alice"})
 
-	w := NewWorker(s, writer, nil, func() {}, testLogger())
+	w := NewWorker(s, writer, func() {}, testLogger())
 	w.Tick(t.Context())
 
 	jobs, _ := s.ListForUser(1, 10)
@@ -168,7 +174,7 @@ func TestWorker_FailsTerminalAfterMaxAttempts(t *testing.T) {
 
 	id, _ := s.Enqueue(1, 10, OpAssign, Payload{Email: "alice"})
 
-	w := NewWorker(s, writer, nil, func() {}, testLogger())
+	w := NewWorker(s, writer, func() {}, testLogger())
 	w.maxAttempts = 2
 
 	w.Tick(t.Context())
@@ -180,6 +186,26 @@ func TestWorker_FailsTerminalAfterMaxAttempts(t *testing.T) {
 	jobs, _ := s.ListForUser(1, 10)
 	if jobs[0].Status != StatusFailed || jobs[0].Attempts != 2 {
 		t.Fatalf("expected terminal failure after max attempts, got %+v", jobs[0])
+	}
+}
+
+func TestWorker_UpdateUsesEmailNotInboundID(t *testing.T) {
+	db := openTestDB(t)
+	s := NewStore(db)
+	writer := &fakeWriter{}
+
+	if _, err := s.Enqueue(1, 10, OpUpdate, Payload{Email: "alice", TotalGB: 5000, Enable: true}); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+
+	w := NewWorker(s, writer, func() {}, testLogger())
+	w.Tick(t.Context())
+
+	if atomic.LoadInt32(&writer.updateCalls) != 1 {
+		t.Fatalf("expected 1 UpdateClient call, got %d", writer.updateCalls)
+	}
+	if writer.lastClient.Email != "alice" || writer.lastClient.TotalGB != 5000 {
+		t.Fatalf("unexpected client pushed: %+v", writer.lastClient)
 	}
 }
 
@@ -195,17 +221,14 @@ func TestWorker_UnassignAndResetTraffic(t *testing.T) {
 		t.Fatalf("Enqueue reset: %v", err)
 	}
 
-	w := NewWorker(s, writer, nil, func() {}, testLogger())
+	w := NewWorker(s, writer, func() {}, testLogger())
 	w.Tick(t.Context())
 
-	if writer.lastIdent != "uuid-1" {
-		t.Fatalf("expected DeleteClient identifier uuid-1, got %q", writer.lastIdent)
-	}
 	if writer.lastEmail != "bob" {
-		t.Fatalf("expected ResetClientTraffic email bob, got %q", writer.lastEmail)
+		t.Fatalf("expected last call to be resetTraffic for bob, got %q", writer.lastEmail)
 	}
-	if atomic.LoadInt32(&writer.deleteCalls) != 1 || atomic.LoadInt32(&writer.resetCalls) != 1 {
-		t.Fatalf("expected 1 delete + 1 reset call, got delete=%d reset=%d", writer.deleteCalls, writer.resetCalls)
+	if atomic.LoadInt32(&writer.detachCalls) != 1 || atomic.LoadInt32(&writer.resetCalls) != 1 {
+		t.Fatalf("expected 1 detach + 1 reset call, got detach=%d reset=%d", writer.detachCalls, writer.resetCalls)
 	}
 }
 
@@ -219,7 +242,7 @@ func TestWorker_UnknownOpFailsCleanly(t *testing.T) {
 		t.Fatalf("Enqueue: %v", err)
 	}
 
-	w := NewWorker(s, writer, nil, func() {}, testLogger())
+	w := NewWorker(s, writer, func() {}, testLogger())
 	w.Tick(t.Context())
 
 	jobs, _ := s.ListForUser(1, 10)

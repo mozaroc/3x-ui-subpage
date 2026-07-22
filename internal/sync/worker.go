@@ -12,10 +12,12 @@ import (
 // Writer is the subset of *xui.Client the Worker needs — kept as an
 // interface so tests use a fake instead of an HTTP server.
 type Writer interface {
-	AddClient(ctx context.Context, inboundID int, client xui.ClientPayload) error
-	UpdateClient(ctx context.Context, inboundID int, client xui.ClientPayload) error
-	DeleteClient(ctx context.Context, inboundID int, identifier string) error
-	ResetClientTraffic(ctx context.Context, inboundID int, email string) error
+	GetClient(ctx context.Context, email string) (xui.ManagedClient, bool, error)
+	AddClient(ctx context.Context, client xui.ManagedClient, inboundIDs []int) error
+	AttachClient(ctx context.Context, email string, inboundIDs []int) error
+	UpdateClient(ctx context.Context, client xui.ManagedClient) error
+	DetachClient(ctx context.Context, email string, inboundIDs []int) error
+	ResetClientTraffic(ctx context.Context, email string) error
 }
 
 const (
@@ -31,8 +33,7 @@ const (
 type Worker struct {
 	jobs       *Store
 	writer     Writer
-	lister     xui.InboundLister // used for the assign-conflict pre-check; may be nil
-	invalidate func()            // called after every successful write
+	invalidate func() // called after every successful write
 	logger     *slog.Logger
 
 	pollInterval time.Duration
@@ -40,15 +41,14 @@ type Worker struct {
 	maxAttempts  int
 }
 
-// NewWorker builds a Worker. lister and invalidate may be nil (disables the
-// conflict pre-check / cache invalidation, respectively) but are expected to
-// be set in production — cmd/subscription-service wires both to the same
-// xui.CachedLister the rest of the service already uses.
-func NewWorker(jobs *Store, writer Writer, lister xui.InboundLister, invalidate func(), logger *slog.Logger) *Worker {
+// NewWorker builds a Worker. invalidate may be nil (disables cache
+// invalidation) but is expected to be set in production —
+// cmd/subscription-service wires it to the same xui.CachedLister the rest
+// of the service already uses.
+func NewWorker(jobs *Store, writer Writer, invalidate func(), logger *slog.Logger) *Worker {
 	return &Worker{
 		jobs:         jobs,
 		writer:       writer,
-		lister:       lister,
 		invalidate:   invalidate,
 		logger:       logger,
 		pollInterval: defaultPollInterval,
@@ -125,49 +125,48 @@ func (w *Worker) process(ctx context.Context, j Job) {
 	}
 }
 
+// dispatch maps a job to the panel's client-management API
+// (/panel/api/clients/*, confirmed against a live 3x-ui 3.5.0 instance) —
+// every op is keyed by the client's email, the one universal identifier
+// that API uses throughout.
 func (w *Worker) dispatch(ctx context.Context, j Job) error {
 	switch j.Op {
 	case OpAssign:
 		return w.doAssign(ctx, j)
 	case OpUpdate:
-		return w.writer.UpdateClient(ctx, j.InboundID, toClientPayload(j.Payload))
+		return w.writer.UpdateClient(ctx, toManagedClient(j.Payload))
 	case OpUnassign:
-		return w.writer.DeleteClient(ctx, j.InboundID, j.Payload.Identifier())
+		return w.writer.DetachClient(ctx, j.Payload.Email, []int{j.InboundID})
 	case OpResetTraffic:
-		return w.writer.ResetClientTraffic(ctx, j.InboundID, j.Payload.Email)
+		return w.writer.ResetClientTraffic(ctx, j.Payload.Email)
 	default:
 		return fmt.Errorf("sync: unknown op %q", j.Op)
 	}
 }
 
-// doAssign creates the client on the panel, unless one with the same email
-// already exists in that inbound (drift from a previous partial failure, or
-// a manual edit on the panel side) — in which case it self-heals by
-// updating instead of erroring out on a duplicate-add.
+// doAssign attaches the client to the job's inbound, creating it first if
+// this is its first-ever assignment. It checks whether the client already
+// exists on the panel (drift from a previous partial failure, or the same
+// user being assigned a second/third inbound) — in which case it attaches
+// instead of erroring out on a duplicate-create.
 func (w *Worker) doAssign(ctx context.Context, j Job) error {
-	payload := toClientPayload(j.Payload)
-
-	if w.lister != nil {
-		if inbounds, err := w.lister.ListInbounds(ctx); err == nil {
-			if _, exists, err := xui.FindClient(inbounds, j.InboundID, j.Payload.Email); err == nil && exists {
-				w.logger.Warn("sync: client already exists on panel, updating instead of adding",
-					"user_id", j.UserID, "inbound_id", j.InboundID, "email", j.Payload.Email)
-				return w.writer.UpdateClient(ctx, j.InboundID, payload)
-			}
-		}
+	_, exists, err := w.writer.GetClient(ctx, j.Payload.Email)
+	if err != nil {
+		return fmt.Errorf("check existing client: %w", err)
 	}
-
-	return w.writer.AddClient(ctx, j.InboundID, payload)
+	if exists {
+		return w.writer.AttachClient(ctx, j.Payload.Email, []int{j.InboundID})
+	}
+	return w.writer.AddClient(ctx, toManagedClient(j.Payload), []int{j.InboundID})
 }
 
-func toClientPayload(p Payload) xui.ClientPayload {
-	return xui.ClientPayload{
-		ID:         p.UUID,
-		Password:   p.Password,
-		Method:     p.Method,
-		Flow:       p.Flow,
+func toManagedClient(p Payload) xui.ManagedClient {
+	return xui.ManagedClient{
 		Email:      p.Email,
 		SubID:      p.SubID,
+		UUID:       p.UUID,
+		Password:   p.Password,
+		Flow:       p.Flow,
 		Enable:     p.Enable,
 		TotalGB:    p.TotalGB,
 		ExpiryTime: p.ExpiryMs,

@@ -53,17 +53,6 @@ type Payload struct {
 	ExpiryMs int64  `json:"expiryMs"`
 }
 
-// Identifier returns the value 3x-ui's updateClient/delClient routes match a
-// client by: uuid if set, else password — mirroring xui.clientIdentifier's
-// resolution (duplicated here rather than exported across packages, since
-// it's a three-line pure function).
-func (p Payload) Identifier() string {
-	if p.UUID != "" {
-		return p.UUID
-	}
-	return p.Password
-}
-
 // Job is one sync_jobs row.
 type Job struct {
 	ID            int64

@@ -31,25 +31,50 @@ tiny bootstrap file naming that database's path.
 
 ## Layers
 
-- **`internal/xui`** — REST client for the 3x-ui panel. Owns auth (cookie
-  session + automatic re-login on 401), retry/backoff, and decoding of the
-  panel's inbound list (including the embedded `settings`/`streamSettings`
-  JSON strings). Wrapped by `CachedLister` (`internal/xui/cache.go`) which
-  adds a short TTL cache + singleflight de-duplication so many concurrent
-  subscription requests collapse into one upstream call; `Invalidate()`
-  forces the next read to bypass the cache, called by the sync worker after
-  every successful write so readers see the change immediately. Also owns
-  the *write* side: `AddClient`/`UpdateClient`/`DeleteClient`/
-  `ResetClientTraffic`. **Judgment call, same spirit as the Happ/Incy one
-  below**: these write endpoints are community-documented, not officially
-  versioned, and the `:clientId` path segment upstream's own backend
-  expects is protocol-dependent (a client's `id` for vless/vmess, its
-  `password` for trojan/shadowsocks — there's no single universal key
-  except `email`, which upstream only uses for `resetClientTraffic`).
-  Resolved as `id`-else-`password`, isolated in one place
-  (`xui.clientIdentifier` / `sync.Payload.Identifier`) — verify one create
-  and one edit against your real panel/fork before relying on it in
-  production.
+- **`internal/xui`** — REST client for the 3x-ui panel. Authenticates with a
+  static API token (from the panel's own **Settings → Security → API
+  Token**), sent as `Authorization: Bearer <token>` on every request — no
+  session cookie, no login/re-login flow. Retries with backoff on transient
+  errors; a 401/403 is treated as a terminal auth failure (retrying with
+  the same bad key can't help). Decodes the panel's inbound list, including
+  `settings`/`streamSettings`, which are handled *flexibly*
+  (`unmarshalFlexible` in `parse.go`) since panel versions disagree on
+  whether these arrive as nested JSON objects or as JSON-encoded strings —
+  confirmed empirically: a live 3x-ui 3.5.0 test instance serves objects,
+  vanilla 3x-ui's documented convention is strings, and this project
+  doesn't assume either. Wrapped by `CachedLister` (`internal/xui/cache.go`)
+  which adds a short TTL cache + singleflight de-duplication so many
+  concurrent subscription requests collapse into one upstream call;
+  `Invalidate()` forces the next read to bypass the cache, called by the
+  sync worker after every successful write so readers see the change
+  immediately.
+
+  The *write* side (`AddClient`/`UpdateClient`/`AttachClient`/
+  `DetachClient`/`DeleteClient`/`ResetClientTraffic`/`GetClient`) targets
+  the panel's own client-management API, `/panel/api/clients/*` — this was
+  **verified against a live 3x-ui 3.5.0 instance's own OpenAPI spec**
+  (served at `{base_url}/panel/api/openapi.json` once logged into the
+  panel — session-gated, not reachable with just the API key) and a real
+  create → get → update → attach/detach → delete round trip, not guessed.
+  Every operation there is keyed by the client's **email** — there's no
+  identifier ambiguity to resolve (an earlier draft of this integration,
+  built against generic community knowledge of *vanilla* 3x-ui's older
+  `/panel/api/inbounds/addClient`-style endpoints, assumed an id-vs-password
+  ambiguity that turned out not to exist once tested against a real,
+  current instance; those endpoints don't exist on 3.5.0 at all). Two
+  behaviors confirmed empirically that this project's Users feature works
+  around rather than fights: a client's `uuid` is immutable after creation
+  (the panel silently ignores any `uuid` sent on create or update and keeps
+  its own generated value — harmless for serving subscriptions, since
+  `internal/resolver` always reads the panel's live value, never this
+  service's local copy, but it does mean "regenerate UUID" has no visible
+  effect for vless/vmess clients on this panel version); `subId` **is**
+  honored on create, so `/sub/{subId}` links always match what this
+  service assigned. If you're running a different 3x-ui version or fork,
+  check its own `/panel/api-docs` and verify one create + one edit before
+  relying on this for production traffic — the endpoint *shape* (client-
+  centric, email-keyed) is a deliberate, well-designed API on 3.5.0, but
+  nothing guarantees an older/forked panel exposes the same one.
 - **`internal/domain`** — protocol-agnostic core types (`MatchedClient`,
   `Subscription`, `TrafficStats`, `Status`). Every other layer depends on
   this, never on `internal/xui`'s raw API shapes.
@@ -116,9 +141,10 @@ tiny bootstrap file naming that database's path.
   the same shutdown context as the HTTP server) polls for due jobs, calls
   the matching `xui.Client` write method, and retries with exponential
   backoff (capped, terminal after 8 attempts) on failure. Before an assign,
-  it checks the live inbound list for a client with the same email already
-  present (drift from a prior partial failure, or a manual panel-side edit)
-  and self-heals to an update instead of erroring on a duplicate-add.
+  it calls `GetClient` to check whether a client with this email already
+  exists on the panel (drift from a prior partial failure, or simply this
+  user's second/third inbound assignment) and attaches to the new inbound
+  instead of erroring out on a duplicate-create.
   `sync_jobs` rows are kept as an audit log (`ListForUser`/`ListRecent`,
   backing `/admin/sync` and each user's detail page) and pruned only once
   `success` and older than 7 days — failed/pending rows are never pruned by
@@ -212,6 +238,15 @@ state at the panel:
 4. On success, the shared `CachedLister` is invalidated, so the existing
    resolver/subscription path picks up the change on the very next
    request — no resolver code involved at all.
+
+`update`/`reset_traffic` jobs are enqueued once per assigned inbound (the
+same granularity as `assign`/`unassign`, so the `sync_jobs` schema didn't
+need a separate "user-level, no specific inbound" job shape), even though
+the panel's client API operates per-*client* (by email) rather than
+per-inbound — a user with 3 assigned inbounds fires 3 idempotent, identical
+`UpdateClient`/`ResetClientTraffic` calls instead of 1. Accepted as a minor
+inefficiency, not a correctness issue, in exchange for not having two
+different job shapes.
 
 ## Admin request flow (`POST /admin/...`)
 

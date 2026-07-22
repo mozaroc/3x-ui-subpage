@@ -11,15 +11,17 @@
 #   - run once with -import /path/to/web to seed it from the example
 #     applications/themes/templates checked into this repo's web/ tree, or
 #   - populate the "settings"/"applications"/"themes"/"theme_files"/
-#     "templates"/"assignments" tables yourself (there's no admin UI yet —
-#     use the sqlite3 CLI; see docs/CONFIGURATION.md).
+#     "templates"/"assignments" tables yourself via the sqlite3 CLI, or the
+#     admin UI at /admin once the service is running — see
+#     docs/CONFIGURATION.md.
 #
 # At minimum, after seeding, you still need to INSERT the "xui" and
 # "subscription" rows into the settings table yourself — there's no safe
-# default for panel credentials or your public subscription URL:
+# default for the panel's API key or your public subscription URL. The API
+# key comes from the 3x-ui panel's own UI: Settings → Security → API Token.
 #
 #   INSERT INTO settings (key, value, updated_at) VALUES
-#     ('xui', '{"base_url":"http://127.0.0.1:2053","username":"admin","password":"changeme"}', unixepoch()),
+#     ('xui', '{"base_url":"http://127.0.0.1:2053","api_key":"<panel API token>"}', unixepoch()),
 #     ('subscription', '{"public_url":"https://sub.example.com","server_host":"vpn.example.com"}', unixepoch());
 
 database:

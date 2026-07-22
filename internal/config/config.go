@@ -133,7 +133,11 @@ func Default() Config {
 		},
 		Security: SecurityConfig{
 			RateLimit: RateLimitConfig{RequestsPerMinute: 60, Burst: 20},
-			CSP:       "default-src 'self'",
+			// style-src/script-src allow 'unsafe-inline': the theme's
+			// layout.html needs a tiny inline <script>/<style> block for the
+			// light/dark toggle, and no template here ever interpolates
+			// untrusted content into an inline script/style context.
+			CSP: "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'",
 		},
 		Logging: LoggingConfig{
 			Level:  "info",

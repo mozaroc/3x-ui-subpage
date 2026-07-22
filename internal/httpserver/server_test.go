@@ -111,7 +111,7 @@ func testDeps(t *testing.T, sub domain.Subscription, resolveErr error) Deps {
 		Support:     config.SupportConfig{Telegram: "https://t.me/example"},
 		Security: config.SecurityConfig{
 			RateLimit: config.RateLimitConfig{RequestsPerMinute: 6000, Burst: 100},
-			CSP:       "default-src 'self'",
+			CSP:       "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'",
 		},
 	}
 }

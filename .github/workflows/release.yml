@@ -39,6 +39,9 @@ jobs:
         env:
           VERSION: ${{ steps.tag.outputs.name }}
 
+      - name: Bundle web/ assets
+        run: tar -czf dist/web.tar.gz web
+
       - name: Checksums
         working-directory: dist
         run: sha256sum * > checksums.txt

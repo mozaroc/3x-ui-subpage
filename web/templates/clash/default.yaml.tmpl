@@ -11,54 +11,11 @@ dns:
     - 1.1.1.1
     - 8.8.8.8
 
-proxies:
-{{range $c := .Clients}}  - name: "{{$c.Remark}}"
-    type: {{if eq $c.Protocol "shadowsocks"}}ss{{else}}{{$c.Protocol}}{{end}}
-    server: {{$c.Server}}
-    port: {{$c.Port}}
-    udp: true
-{{if eq $c.Protocol "vless"}}    uuid: {{$c.UUID}}
-    network: {{$c.Network}}
-    tls: {{if ne $c.Security "none"}}true{{else}}false{{end}}
-{{if $c.Insecure}}    skip-cert-verify: true
-{{end}}{{if $c.Flow}}    flow: {{$c.Flow}}
-{{end}}{{if eq $c.Security "reality"}}    servername: {{$c.SNI}}
-    client-fingerprint: {{$c.Fingerprint}}
-    reality-opts:
-      public-key: {{$c.PublicKey}}
-      short-id: {{$c.ShortID}}
-{{else if eq $c.Security "tls"}}    servername: {{$c.SNI}}
-    client-fingerprint: {{$c.Fingerprint}}
-{{end}}{{if eq $c.Network "ws"}}    ws-opts:
-      path: {{$c.Path}}
-      headers:
-        Host: {{$c.Host}}
-{{else if eq $c.Network "grpc"}}    grpc-opts:
-      grpc-service-name: {{$c.ServiceName}}
-{{end}}{{else if eq $c.Protocol "vmess"}}    uuid: {{$c.UUID}}
-    alterId: 0
-    cipher: auto
-    network: {{$c.Network}}
-    tls: {{if ne $c.Security "none"}}true{{else}}false{{end}}
-{{if $c.Insecure}}    skip-cert-verify: true
-{{end}}{{if eq $c.Network "ws"}}    ws-opts:
-      path: {{$c.Path}}
-      headers:
-        Host: {{$c.Host}}
-{{else if eq $c.Network "grpc"}}    grpc-opts:
-      grpc-service-name: {{$c.ServiceName}}
-{{end}}{{else if eq $c.Protocol "trojan"}}    password: "{{$c.Password}}"
-{{if $c.SNI}}    sni: {{$c.SNI}}
-{{end}}{{if $c.Insecure}}    skip-cert-verify: true
-{{end}}{{else if eq $c.Protocol "shadowsocks"}}    cipher: {{$c.Method}}
-    password: "{{$c.Password}}"
-{{end}}{{end}}
 proxy-groups:
   - name: PROXY
     type: select
     proxies:
-{{range $c := .Clients}}      - "{{$c.Remark}}"
-{{end}}      - DIRECT
+      - DIRECT
 
 rules:
   - GEOIP,CN,DIRECT

@@ -27,7 +27,7 @@ type context struct {
 // Generator renders the full xray-core client JSON config from a template
 // loaded per-profile, hot-reloaded on change.
 type Generator struct {
-	cache *tmplcache.Cache
+	cache *tmplcache.Cache[*template.Template]
 }
 
 // New builds a Generator backed by db.

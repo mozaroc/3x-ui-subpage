@@ -12,48 +12,51 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"text/template"
 )
 
 // DefaultProfile is the profile every fallback resolves to.
 const DefaultProfile = "default"
 
-// ParseFunc parses a template row's content into a *template.Template. name
+// ParseFunc parses a template row's content into the cache's compiled type
+// T (typically *template.Template, but yamlgen uses a plain string). name
 // is a unique association name for this template within its set (see
 // text/template's New/Parse pattern) — callers typically pass something
 // like "<format>/<profile>/<protocol>".
-type ParseFunc func(name, content string) (*template.Template, error)
+type ParseFunc[T any] func(name, content string) (T, error)
 
-type entry struct {
-	tmpl      *template.Template
+type entry[T any] struct {
+	value     T
 	updatedAt int64
 }
 
-// Cache loads and caches templates from the "templates" table for one
-// format (e.g. "clash", "xray_json", or one of the xray_link protocols).
-type Cache struct {
+// Cache loads and caches compiled templates (type T) from the "templates"
+// table for one format (e.g. "clash", "xray_json", or one of the
+// xray_link protocols).
+type Cache[T any] struct {
 	db     *sql.DB
 	format string
-	parse  ParseFunc
+	parse  ParseFunc[T]
 
 	mu      sync.Mutex
-	entries map[string]*entry
+	entries map[string]*entry[T]
 }
 
 // New builds a Cache for the given format, using db as the template row
-// source and parse to compile a row's content into a *template.Template.
-func New(db *sql.DB, format string, parse ParseFunc) *Cache {
-	return &Cache{db: db, format: format, parse: parse, entries: make(map[string]*entry)}
+// source and parse to compile a row's content into T. T is inferred from
+// parse's return type.
+func New[T any](db *sql.DB, format string, parse ParseFunc[T]) *Cache[T] {
+	return &Cache[T]{db: db, format: format, parse: parse, entries: make(map[string]*entry[T])}
 }
 
-// Get returns the compiled template for (format, profile, protocol),
-// falling back to the "default" profile if no row exists for profile.
-// protocol is "" for formats that don't have per-protocol templates
-// (clash, mihomo, xray_json).
-func (c *Cache) Get(profile, protocol string) (*template.Template, error) {
+// Get returns the compiled value for (format, profile, protocol), falling
+// back to the "default" profile if no row exists for profile. protocol is
+// "" for formats that don't have per-protocol templates (clash, mihomo,
+// xray_json).
+func (c *Cache[T]) Get(profile, protocol string) (T, error) {
 	content, updatedAt, resolvedProfile, err := c.fetch(profile, protocol)
 	if err != nil {
-		return nil, err
+		var zero T
+		return zero, err
 	}
 
 	key := resolvedProfile + "|" + protocol
@@ -62,22 +65,23 @@ func (c *Cache) Get(profile, protocol string) (*template.Template, error) {
 	defer c.mu.Unlock()
 
 	if e, ok := c.entries[key]; ok && e.updatedAt == updatedAt {
-		return e.tmpl, nil
+		return e.value, nil
 	}
 
-	tmpl, err := c.parse(c.format+"/"+key, content)
+	value, err := c.parse(c.format+"/"+key, content)
 	if err != nil {
-		return nil, fmt.Errorf("tmplcache: parse %s/%s: %w", c.format, key, err)
+		var zero T
+		return zero, fmt.Errorf("tmplcache: parse %s/%s: %w", c.format, key, err)
 	}
 
-	c.entries[key] = &entry{tmpl: tmpl, updatedAt: updatedAt}
-	return tmpl, nil
+	c.entries[key] = &entry[T]{value: value, updatedAt: updatedAt}
+	return value, nil
 }
 
 // fetch queries the requested (format, profile, protocol) row, falling back
 // to the "default" profile if it doesn't exist. Returns the resolved
 // profile name actually used, for cache-key purposes.
-func (c *Cache) fetch(profile, protocol string) (content string, updatedAt int64, resolvedProfile string, err error) {
+func (c *Cache[T]) fetch(profile, protocol string) (content string, updatedAt int64, resolvedProfile string, err error) {
 	content, updatedAt, err = c.queryRow(profile, protocol)
 	if err == nil {
 		return content, updatedAt, profile, nil
@@ -99,7 +103,7 @@ func (c *Cache) fetch(profile, protocol string) (content string, updatedAt int64
 	return content, updatedAt, DefaultProfile, nil
 }
 
-func (c *Cache) queryRow(profile, protocol string) (content string, updatedAt int64, err error) {
+func (c *Cache[T]) queryRow(profile, protocol string) (content string, updatedAt int64, err error) {
 	err = c.db.QueryRow(
 		`SELECT content, updated_at FROM templates WHERE format = ? AND profile = ? AND protocol = ?`,
 		c.format, profile, protocol,

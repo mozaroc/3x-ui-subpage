@@ -24,7 +24,7 @@ const format = "xray_link"
 // per-(profile, protocol) templates loaded from the database, hot-reloaded
 // on change, with missing profiles falling back to "default".
 type Generator struct {
-	cache *tmplcache.Cache
+	cache *tmplcache.Cache[*template.Template]
 }
 
 // New builds a Generator backed by db.

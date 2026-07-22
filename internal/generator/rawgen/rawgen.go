@@ -31,7 +31,7 @@ type context struct {
 // per-profile, hot-reloaded on change, plus that profile's routing rules
 // (falling back to the "default" profile independently for each).
 type Generator struct {
-	cache *tmplcache.Cache
+	cache *tmplcache.Cache[*template.Template]
 	rules *routing.Store
 }
 

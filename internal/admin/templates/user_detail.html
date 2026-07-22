@@ -66,6 +66,24 @@
 </div>
 
 <div class="card">
+  <h2>Subscription</h2>
+  <div class="qr-row">
+    <img class="qr-row__image" src="{{.Data.QRPngURL}}" alt="Subscription QR code" width="180" height="180">
+    <div class="qr-row__details">
+      <div class="field field--full">
+        <label>Subscription URL</label>
+        <div class="copy-row">
+          <input class="mono" type="text" readonly value="{{.Data.SubscriptionURL}}">
+          <button class="btn btn--primary" type="button" data-copy="{{.Data.SubscriptionURL}}">Copy</button>
+        </div>
+      </div>
+      <a class="btn btn--secondary" href="{{.Data.QRSvgURL}}" download>Download QR (SVG)</a>
+    </div>
+  </div>
+  <p class="hint">The QR code and subscription URL only resolve once this user has at least one successfully-synced inbound.</p>
+</div>
+
+<div class="card">
   <h2>Edit</h2>
   <form method="post" action="/admin/users/{{.Data.User.ID}}">
     <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
@@ -89,7 +107,11 @@
       <div class="form-grid">
         <div class="field field--md">
           <label>Vless flow</label>
-          <input type="text" name="flow" value="{{.Data.User.Flow}}">
+          <select name="flow">
+            <option value="" {{if eq .Data.User.Flow ""}}selected{{end}}>(none)</option>
+            <option value="xtls-rprx-vision" {{if eq .Data.User.Flow "xtls-rprx-vision"}}selected{{end}}>xtls-rprx-vision</option>
+            <option value="xtls-rprx-vision-udp443" {{if eq .Data.User.Flow "xtls-rprx-vision-udp443"}}selected{{end}}>xtls-rprx-vision-udp443</option>
+          </select>
         </div>
         <div class="field field--md">
           <label>Shadowsocks method</label>

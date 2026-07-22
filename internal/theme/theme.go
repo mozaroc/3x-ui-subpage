@@ -111,10 +111,19 @@ func (e *Engine) reloadIfNeeded() error {
 		return fmt.Errorf("theme: query max updated_at: %w", err)
 	}
 
+	// Also track the file count: deleting a theme_files row can only ever
+	// leave the remaining max updated_at the same or lower, never higher,
+	// so a deletion that doesn't remove the single most-recently-touched
+	// file would otherwise go undetected by the MAX(updated_at) check alone.
+	var fileCount int
+	if err := e.db.QueryRow(`SELECT COUNT(*) FROM theme_files WHERE theme_slug = ?`, e.slug).Scan(&fileCount); err != nil {
+		return fmt.Errorf("theme: count theme_files: %w", err)
+	}
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if e.tmpl != nil && newest.Int64 == e.newestAt {
+	if e.tmpl != nil && newest.Int64 == e.newestAt && fileCount == len(e.static) {
 		return nil
 	}
 

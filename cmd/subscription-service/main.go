@@ -100,16 +100,10 @@ func main() {
 	logger := logging.New(cfg.Logging.Level, cfg.Logging.Format)
 	logger.Info("starting subscription-service", "version", version, "listen", cfg.Server.Listen, "db", resolvedDBPath)
 
-	xuiClient, err := xui.New(
-		cfg.XUI.BaseURL, cfg.XUI.APIKey,
-		cfg.XUI.Timeout, cfg.XUI.Retry.MaxAttempts, cfg.XUI.Retry.Backoff,
-		xui.WithLogger(logger),
-		xui.WithInsecureSkipVerify(cfg.XUI.InsecureSkipVerify),
-	)
-	if err != nil {
-		logger.Error("failed to build xui client", "err", err)
-		os.Exit(1)
-	}
+	// xuiClient reloads its underlying *xui.Client whenever the "xui"
+	// settings row changes, so filling in (or editing) Settings -> xui
+	// through the admin UI takes effect immediately, with no restart.
+	xuiClient := xui.NewDynamic(db, logger)
 
 	cachedLister := xui.NewCachedLister(xuiClient, cfg.Subscription.CacheTTL)
 	sub := resolver.New(cachedLister, cfg.Subscription.ServerHost)
@@ -138,7 +132,7 @@ func main() {
 	}
 
 	srv := httpserver.New(deps)
-	adminSrv := admin.New(db, logger, usersStore, syncStore, cachedLister, sub)
+	adminSrv := admin.New(db, logger, usersStore, syncStore, cachedLister, sub, cfg.Subscription.PublicURL)
 
 	root := chi.NewRouter()
 	root.Mount("/", srv.Router())

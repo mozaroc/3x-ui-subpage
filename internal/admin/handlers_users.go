@@ -303,17 +303,20 @@ type syncJobRow struct {
 }
 
 type userDetailPageData struct {
-	User         users.User
-	TotalGBValue string
-	ExpiryValue  string
-	Status       string
-	TrafficUsed  string
-	TrafficLimit string
-	LiveExpiry   string
-	SyncStatus   string
-	Inbounds     []inboundOption
-	SyncJobs     []syncJobRow
-	Error        string
+	User            users.User
+	TotalGBValue    string
+	ExpiryValue     string
+	Status          string
+	TrafficUsed     string
+	TrafficLimit    string
+	LiveExpiry      string
+	SyncStatus      string
+	SubscriptionURL string
+	QRPngURL        string
+	QRSvgURL        string
+	Inbounds        []inboundOption
+	SyncJobs        []syncJobRow
+	Error           string
 }
 
 func (s *Server) handleUserDetail(w http.ResponseWriter, r *http.Request) {
@@ -397,7 +400,11 @@ func (s *Server) handleUserDetail(w http.ResponseWriter, r *http.Request) {
 			TotalGBValue: bytesToGBString(u.TotalGB),
 			ExpiryValue:  expiryInputValue(u.ExpiryMs),
 			Status:       status, TrafficUsed: trafficUsed, TrafficLimit: trafficLimit, LiveExpiry: liveExpiry,
-			SyncStatus: syncStatus, Inbounds: options, SyncJobs: jobRows,
+			SyncStatus:      syncStatus,
+			SubscriptionURL: fmt.Sprintf("%s/sub/%s", strings.TrimSuffix(s.publicURL, "/"), u.SubID),
+			QRPngURL:        fmt.Sprintf("/sub/%s/qr.png", u.SubID),
+			QRSvgURL:        fmt.Sprintf("/sub/%s/qr.svg", u.SubID),
+			Inbounds:        options, SyncJobs: jobRows,
 		},
 	})
 }
@@ -462,10 +469,14 @@ func (s *Server) handleUserDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	payload := payloadFor(u)
-	for _, a := range assignments {
-		if _, err := s.syncJobs.Enqueue(id, a.InboundID, sync.OpUnassign, payload); err != nil {
-			s.logger.Error("admin: enqueue unassign on delete failed", "id", id, "inbound_id", a.InboundID, "err", err)
+	// One delete call removes the client from every inbound and drops its
+	// panel-side record in one step — deliberately not N per-inbound
+	// unassigns, since detaching the last inbound doesn't reliably leave
+	// nothing behind (confirmed empirically: some panel states leave an
+	// orphaned zero-inbound client instead of auto-removing it).
+	if len(assignments) > 0 {
+		if _, err := s.syncJobs.Enqueue(id, 0, sync.OpDelete, payloadFor(u)); err != nil {
+			s.logger.Error("admin: enqueue delete on delete failed", "id", id, "err", err)
 		}
 	}
 
@@ -675,9 +686,8 @@ func (s *Server) bulkApply(id int64, action string) error {
 		if err != nil {
 			return err
 		}
-		payload := payloadFor(u)
-		for _, a := range assignments {
-			if _, err := s.syncJobs.Enqueue(id, a.InboundID, sync.OpUnassign, payload); err != nil {
+		if len(assignments) > 0 {
+			if _, err := s.syncJobs.Enqueue(id, 0, sync.OpDelete, payloadFor(u)); err != nil {
 				return err
 			}
 		}

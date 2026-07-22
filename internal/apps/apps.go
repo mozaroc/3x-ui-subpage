@@ -50,14 +50,21 @@ func New(db *sql.DB) *Catalog {
 
 func (c *Catalog) reloadIfNeeded() error {
 	var newest sql.NullInt64
-	if err := c.db.QueryRow(`SELECT MAX(updated_at) FROM applications`).Scan(&newest); err != nil {
+	var count int
+	if err := c.db.QueryRow(`SELECT COUNT(*), MAX(updated_at) FROM applications`).Scan(&count, &newest); err != nil {
 		return fmt.Errorf("apps: query max updated_at: %w", err)
 	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.apps != nil && newest.Int64 == c.loadedAt {
+	// Compare count too, not just MAX(updated_at): deleting a row can only
+	// ever leave the remaining max the same or lower, never higher, so a
+	// deletion that doesn't happen to remove the single most-recently-
+	// touched row would otherwise go undetected — the stale, already-
+	// deleted app would keep being served until some unrelated later
+	// insert/update finally raised the max past the cached value.
+	if c.apps != nil && newest.Int64 == c.loadedAt && count == len(c.apps) {
 		return nil
 	}
 

@@ -123,6 +123,47 @@ func TestRender_HotReload(t *testing.T) {
 	}
 }
 
+// TestServeStatic_DeletedFileInvisibleEvenWhenMaxUpdatedAtUnchanged guards
+// against a real bug: deleting a theme_files row can only ever leave the
+// remaining MAX(updated_at) the same or lower, never higher, so a
+// staleness check based on MAX(updated_at) alone can't detect a delete
+// unless the deleted row happened to be the single most-recently-touched
+// one. Here the *older* of two static files is deleted, so the survivor's
+// updated_at is already equal to what was cached as the max — a MAX-only
+// check would wrongly consider the cache still fresh and keep serving the
+// deleted file's stale content.
+func TestServeStatic_DeletedFileInvisibleEvenWhenMaxUpdatedAtUnchanged(t *testing.T) {
+	db := openTestDB(t)
+	seedTheme(t, db, "test", 1)
+	seedFile(t, db, "test", "layout.html", `{{define "layout"}}{{template "content" .}}{{end}}`, 1)
+	seedFile(t, db, "test", "pages/subscription.html", `{{define "content"}}x{{end}}`, 1)
+	seedFile(t, db, "test", "static/old.txt", "old-content", 1)
+	seedFile(t, db, "test", "static/newer.txt", "newer-content", 2)
+
+	e := New(db, "test")
+
+	req := httptest.NewRequest("GET", "/assets/test/old.txt", nil)
+	rec := httptest.NewRecorder()
+	found, err := e.ServeStatic(rec, req, "old.txt")
+	if err != nil || !found {
+		t.Fatalf("expected static/old.txt to be served initially, found=%v err=%v", found, err)
+	}
+
+	if _, err := db.Exec(`DELETE FROM theme_files WHERE theme_slug = 'test' AND path = 'static/old.txt'`); err != nil {
+		t.Fatalf("delete static/old.txt: %v", err)
+	}
+
+	req = httptest.NewRequest("GET", "/assets/test/old.txt", nil)
+	rec = httptest.NewRecorder()
+	found, err = e.ServeStatic(rec, req, "old.txt")
+	if err != nil {
+		t.Fatalf("ServeStatic after delete: %v", err)
+	}
+	if found {
+		t.Fatal("expected deleted static file to no longer be served")
+	}
+}
+
 func TestServeStatic_ServesAndReloads(t *testing.T) {
 	db := openTestDB(t)
 	seedTheme(t, db, "test", 1)

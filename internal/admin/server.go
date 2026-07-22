@@ -51,6 +51,7 @@ type Server struct {
 	syncJobs    *sync.Store
 	inbounds    xui.InboundLister
 	resolve     SubscriptionResolver
+	publicURL   string
 
 	loginLimiter *ratelimit.Limiter
 }
@@ -59,7 +60,10 @@ type Server struct {
 // goes through internal/config functions called with the same db). inbounds
 // and resolve are typically the same xui.CachedLister / resolver.Resolver
 // the public-facing httpserver already uses, shared rather than duplicated.
-func New(db *sql.DB, logger *slog.Logger, usersStore *users.Store, syncStore *sync.Store, inbounds xui.InboundLister, resolve SubscriptionResolver) *Server {
+// publicURL is the subscription service's own public base URL
+// (Settings -> subscription -> public_url), used to build the full
+// subscription link shown on a user's detail page.
+func New(db *sql.DB, logger *slog.Logger, usersStore *users.Store, syncStore *sync.Store, inbounds xui.InboundLister, resolve SubscriptionResolver, publicURL string) *Server {
 	return &Server{
 		db:           db,
 		logger:       logger,
@@ -73,6 +77,7 @@ func New(db *sql.DB, logger *slog.Logger, usersStore *users.Store, syncStore *sy
 		syncJobs:     syncStore,
 		inbounds:     inbounds,
 		resolve:      resolve,
+		publicURL:    publicURL,
 		loginLimiter: ratelimit.New(5, 5), // 5/min/IP on login specifically
 	}
 }

@@ -17,6 +17,7 @@ type Writer interface {
 	AttachClient(ctx context.Context, email string, inboundIDs []int) error
 	UpdateClient(ctx context.Context, client xui.ManagedClient) error
 	DetachClient(ctx context.Context, email string, inboundIDs []int) error
+	DeleteClient(ctx context.Context, email string) error
 	ResetClientTraffic(ctx context.Context, email string) error
 }
 
@@ -137,6 +138,8 @@ func (w *Worker) dispatch(ctx context.Context, j Job) error {
 		return w.writer.UpdateClient(ctx, toManagedClient(j.Payload))
 	case OpUnassign:
 		return w.writer.DetachClient(ctx, j.Payload.Email, []int{j.InboundID})
+	case OpDelete:
+		return w.writer.DeleteClient(ctx, j.Payload.Email)
 	case OpResetTraffic:
 		return w.writer.ResetClientTraffic(ctx, j.Payload.Email)
 	default:

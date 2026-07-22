@@ -21,6 +21,7 @@ type fakeWriter struct {
 	attachCalls int32
 	updateCalls int32
 	detachCalls int32
+	deleteCalls int32
 	resetCalls  int32
 
 	failAdd    bool
@@ -71,6 +72,12 @@ func (f *fakeWriter) DetachClient(ctx context.Context, email string, inboundIDs 
 	atomic.AddInt32(&f.detachCalls, 1)
 	f.lastEmail = email
 	f.lastInboundIDs = inboundIDs
+	return nil
+}
+
+func (f *fakeWriter) DeleteClient(ctx context.Context, email string) error {
+	atomic.AddInt32(&f.deleteCalls, 1)
+	f.lastEmail = email
 	return nil
 }
 
@@ -229,6 +236,26 @@ func TestWorker_UnassignAndResetTraffic(t *testing.T) {
 	}
 	if atomic.LoadInt32(&writer.detachCalls) != 1 || atomic.LoadInt32(&writer.resetCalls) != 1 {
 		t.Fatalf("expected 1 detach + 1 reset call, got detach=%d reset=%d", writer.detachCalls, writer.resetCalls)
+	}
+}
+
+func TestWorker_Delete(t *testing.T) {
+	db := openTestDB(t)
+	s := NewStore(db)
+	writer := &fakeWriter{}
+
+	if _, err := s.Enqueue(1, 0, OpDelete, Payload{Email: "alice"}); err != nil {
+		t.Fatalf("Enqueue delete: %v", err)
+	}
+
+	w := NewWorker(s, writer, func() {}, testLogger())
+	w.Tick(t.Context())
+
+	if atomic.LoadInt32(&writer.deleteCalls) != 1 {
+		t.Fatalf("expected 1 DeleteClient call, got %d", writer.deleteCalls)
+	}
+	if writer.lastEmail != "alice" {
+		t.Fatalf("expected DeleteClient for alice, got %q", writer.lastEmail)
 	}
 }
 

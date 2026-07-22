@@ -23,8 +23,12 @@
       <div class="form-section__title">Protocol</div>
       <div class="form-grid">
         <div class="field field--md">
-          <label>Vless flow (optional, e.g. xtls-rprx-vision)</label>
-          <input type="text" name="flow">
+          <label>Vless flow</label>
+          <select name="flow">
+            <option value="">(none)</option>
+            <option value="xtls-rprx-vision" selected>xtls-rprx-vision</option>
+            <option value="xtls-rprx-vision-udp443">xtls-rprx-vision-udp443</option>
+          </select>
         </div>
         <div class="field field--md">
           <label>Shadowsocks method</label>

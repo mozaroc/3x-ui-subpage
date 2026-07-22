@@ -22,9 +22,10 @@ import (
 
 // Op identifies which xui.Client write method a Job maps to.
 const (
-	OpAssign       = "assign"        // addClient
+	OpAssign       = "assign"        // addClient (or attachClient if the client already exists)
 	OpUpdate       = "update"        // updateClient
-	OpUnassign     = "unassign"      // delClient
+	OpUnassign     = "unassign"      // detachClient — remove from one inbound, keep the client
+	OpDelete       = "delete"        // deleteClient — remove the client entirely, from every inbound
 	OpResetTraffic = "reset_traffic" // resetClientTraffic
 )
 

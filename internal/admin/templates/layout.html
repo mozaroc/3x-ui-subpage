@@ -13,11 +13,22 @@
       var system = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
       document.documentElement.setAttribute("data-theme", stored || system);
       document.addEventListener("click", function (e) {
-        var btn = e.target.closest("[data-theme-toggle]");
-        if (!btn) return;
-        var next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
-        document.documentElement.setAttribute("data-theme", next);
-        try { localStorage.setItem(KEY, next); } catch (e) {}
+        var themeBtn = e.target.closest("[data-theme-toggle]");
+        if (themeBtn) {
+          var next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+          document.documentElement.setAttribute("data-theme", next);
+          try { localStorage.setItem(KEY, next); } catch (e) {}
+          return;
+        }
+        var copyBtn = e.target.closest("[data-copy]");
+        if (copyBtn) {
+          var text = copyBtn.getAttribute("data-copy");
+          navigator.clipboard.writeText(text).then(function () {
+            var original = copyBtn.textContent;
+            copyBtn.textContent = "Copied!";
+            setTimeout(function () { copyBtn.textContent = original; }, 1500);
+          });
+        }
       });
     })();
   </script>
@@ -219,6 +230,13 @@
     .dash-card h3 a { text-decoration: none; color: var(--text); }
     .dash-card h3 a:hover { color: var(--primary); }
     .dash-card p { margin: 0; font-size: .85rem; color: var(--text-muted); }
+
+    /* --- subscription QR/copy block --- */
+    .qr-row { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; }
+    .qr-row__image { border-radius: var(--radius-sm); background: #fff; padding: 8px; flex-shrink: 0; }
+    .qr-row__details { flex: 1; min-width: 240px; }
+    .copy-row { display: flex; gap: 8px; }
+    .copy-row input { flex: 1; min-width: 0; }
   </style>
 </head>
 <body>

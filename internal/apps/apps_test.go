@@ -102,6 +102,47 @@ func TestList_HotReload(t *testing.T) {
 	}
 }
 
+// TestDelete_InvalidatesCacheEvenWhenMaxUpdatedAtUnchanged guards against a
+// real bug: deleting a row can only ever leave the remaining MAX(updated_at)
+// the same or lower, never higher, so a staleness check based on
+// MAX(updated_at) alone can't detect a delete unless the deleted row
+// happened to be the single most-recently-touched one. Here the *older* of
+// two apps is deleted, so the survivor's updated_at is already equal to
+// what was cached as the max — a MAX-only check would wrongly consider the
+// cache still fresh and keep serving the deleted app.
+func TestDelete_InvalidatesCacheEvenWhenMaxUpdatedAtUnchanged(t *testing.T) {
+	db := openTestDB(t)
+	insertApp(t, db, "old", `[]`, 1, 1, 1, "")
+	insertApp(t, db, "newer", `[]`, 1, 2, 2, "")
+
+	c := New(db)
+	apps, err := c.ListAll()
+	if err != nil {
+		t.Fatalf("ListAll (initial): %v", err)
+	}
+	if len(apps) != 2 {
+		t.Fatalf("expected 2 apps, got %+v", apps)
+	}
+
+	var oldID int64
+	for _, a := range apps {
+		if a.Name == "old" {
+			oldID = a.ID
+		}
+	}
+	if err := c.Delete(oldID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	apps, err = c.ListAll()
+	if err != nil {
+		t.Fatalf("ListAll (after delete): %v", err)
+	}
+	if len(apps) != 1 || apps[0].Name != "newer" {
+		t.Fatalf("expected deletion to be reflected immediately, got %+v", apps)
+	}
+}
+
 func TestList_EmptyCatalog(t *testing.T) {
 	db := openTestDB(t)
 	c := New(db)

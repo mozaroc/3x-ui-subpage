@@ -53,6 +53,16 @@ func TestUsers_CreateListDetail(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "sub-alice") {
 		t.Fatalf("expected detail page to show sub-alice, got %d: %s", rec.Code, rec.Body.String())
 	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "https://sub.example.com/sub/sub-alice") {
+		t.Fatalf("expected detail page to show the full subscription URL, got: %s", body)
+	}
+	if !strings.Contains(body, "/sub/sub-alice/qr.png") || !strings.Contains(body, "/sub/sub-alice/qr.svg") {
+		t.Fatalf("expected detail page to reference the QR endpoints, got: %s", body)
+	}
+	if !strings.Contains(body, "data-copy=") {
+		t.Fatalf("expected detail page to have a copy button, got: %s", body)
+	}
 
 	u, err := s.users.Get(id)
 	if err != nil {
@@ -320,14 +330,43 @@ func TestUsers_Delete_EnqueuesUnassignThenRemovesUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListForUser: %v", err)
 	}
-	var unassignJobs int
+	var deleteJobs int
 	for _, j := range jobs {
-		if j.Op == sync.OpUnassign {
-			unassignJobs++
+		if j.Op == sync.OpDelete {
+			deleteJobs++
+			if j.Payload.Email != "grace" {
+				t.Fatalf("expected delete job for grace, got %+v", j.Payload)
+			}
 		}
 	}
-	if unassignJobs != 1 {
-		t.Fatalf("expected 1 unassign job enqueued before delete, got %+v", jobs)
+	if deleteJobs != 1 {
+		t.Fatalf("expected 1 delete job enqueued before removing the local user, got %+v", jobs)
+	}
+}
+
+func TestUsers_Delete_NoSyncJobWhenNeverAssigned(t *testing.T) {
+	s, _ := newTestServer(t)
+	cookie := loginAndGetCookie(t, s)
+	token := csrfTokenFor(t, s, cookie)
+
+	id := createUserViaHandler(t, s, cookie, token, "hank", "sub-hank")
+
+	form := url.Values{"csrf_token": {token}}
+	req := httptest.NewRequest(http.MethodPost, "/users/"+itoa(id)+"/delete", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("delete: expected 302, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	jobs, err := s.syncJobs.ListForUser(id, 10)
+	if err != nil {
+		t.Fatalf("ListForUser: %v", err)
+	}
+	if len(jobs) != 0 {
+		t.Fatalf("expected no sync jobs for a user that was never assigned an inbound, got %+v", jobs)
 	}
 }
 

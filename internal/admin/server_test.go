@@ -66,7 +66,7 @@ func newTestServer(t *testing.T) (*Server, *sql.DB) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	usersStore := users.New(db)
 	syncStore := sync.NewStore(db)
-	return New(db, logger, usersStore, syncStore, &fakeInboundLister{}, &fakeResolver{}), db
+	return New(db, logger, usersStore, syncStore, &fakeInboundLister{}, &fakeResolver{}, "https://sub.example.com"), db
 }
 
 // loginAndGetCookie logs in against s.Router() and returns the resulting

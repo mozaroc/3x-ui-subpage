@@ -220,6 +220,117 @@ func TestImport_DoesNotPruneAdminEditedRow(t *testing.T) {
 	}
 }
 
+// TestImport_ReimportPreservesAdminEditedTemplate is the direct regression
+// test for the reported bug: an admin edits a default template via
+// /admin/templates, then the box is updated (which re-runs -import against
+// the same bundled web/ tree) -- the admin's edit must survive untouched,
+// not get silently reset back to the shipped default.
+func TestImport_ReimportPreservesAdminEditedTemplate(t *testing.T) {
+	db := openTestDB(t)
+	webDir := copyWebDir(t)
+
+	if err := Import(db, webDir); err != nil {
+		t.Fatalf("first Import: %v", err)
+	}
+
+	if _, err := db.Exec(`
+		UPDATE templates SET content = 'admin-customized-mihomo', updated_at = updated_at + 1
+		WHERE format = 'mihomo' AND profile = 'default'`); err != nil {
+		t.Fatalf("simulate admin edit: %v", err)
+	}
+
+	// The bundled template file is untouched on disk -- this mirrors
+	// exactly what `install.sh --update` does: re-run -import against the
+	// same web/ tree, file present, content unchanged from what shipped.
+	if err := Import(db, webDir); err != nil {
+		t.Fatalf("second Import (simulating --update): %v", err)
+	}
+
+	var content string
+	if err := db.QueryRow(`SELECT content FROM templates WHERE format = 'mihomo' AND profile = 'default'`).Scan(&content); err != nil {
+		t.Fatalf("query mihomo template: %v", err)
+	}
+	if content != "admin-customized-mihomo" {
+		t.Errorf("expected admin-edited mihomo template to survive re-import, got %q", content)
+	}
+
+	// A third re-import must still preserve it -- not just the one
+	// immediately after the edit.
+	if err := Import(db, webDir); err != nil {
+		t.Fatalf("third Import: %v", err)
+	}
+	if err := db.QueryRow(`SELECT content FROM templates WHERE format = 'mihomo' AND profile = 'default'`).Scan(&content); err != nil {
+		t.Fatalf("query mihomo template (3rd): %v", err)
+	}
+	if content != "admin-customized-mihomo" {
+		t.Errorf("expected admin-edited mihomo template to still survive a second re-import, got %q", content)
+	}
+}
+
+// TestImport_ReimportRefreshesUntouchedTemplateOnUpstreamChange proves the
+// preservation logic doesn't just freeze every template forever: a row the
+// admin never touched must still pick up a real content change shipped in
+// a newer release (e.g. a bug fix to the default template itself).
+func TestImport_ReimportRefreshesUntouchedTemplateOnUpstreamChange(t *testing.T) {
+	db := openTestDB(t)
+	webDir := copyWebDir(t)
+
+	if err := Import(db, webDir); err != nil {
+		t.Fatalf("first Import: %v", err)
+	}
+
+	vlessPath := filepath.Join(webDir, "templates", "xray", "vless.tmpl")
+	if err := os.WriteFile(vlessPath, []byte("updated-vless-template-content"), 0o644); err != nil {
+		t.Fatalf("simulate upstream template change: %v", err)
+	}
+
+	if err := Import(db, webDir); err != nil {
+		t.Fatalf("second Import: %v", err)
+	}
+
+	var content string
+	if err := db.QueryRow(`SELECT content FROM templates WHERE format = 'xray_link' AND profile = 'default' AND protocol = 'vless'`).Scan(&content); err != nil {
+		t.Fatalf("query vless template: %v", err)
+	}
+	if content != "updated-vless-template-content" {
+		t.Errorf("expected untouched vless template to pick up the new shipped content, got %q", content)
+	}
+}
+
+// TestImport_LegacyRowWithNoManifestHistoryIsNeverAutoRefreshed covers
+// upgrading from a pre-manifest binary version: a templates row exists
+// (seeded by an older -import, or hand-edited) but has no import_manifest
+// entry at all, since that table didn't exist yet. Such a row must be
+// treated the same as an admin-edited one -- left alone, permanently,
+// across any number of re-imports -- since there's no way to know whether
+// it was ever customized.
+func TestImport_LegacyRowWithNoManifestHistoryIsNeverAutoRefreshed(t *testing.T) {
+	db := openTestDB(t)
+	webDir := copyWebDir(t)
+
+	// Seed a templates row directly, bypassing Import, with no
+	// import_manifest entry -- simulates a DB from before this table
+	// existed.
+	if _, err := db.Exec(`
+		INSERT INTO templates (format, profile, protocol, content, updated_at)
+		VALUES ('mihomo', 'default', '', 'pre-existing-legacy-content', 12345)`); err != nil {
+		t.Fatalf("seed legacy row: %v", err)
+	}
+
+	for i := 0; i < 3; i++ {
+		if err := Import(db, webDir); err != nil {
+			t.Fatalf("Import (call %d): %v", i, err)
+		}
+		var content string
+		if err := db.QueryRow(`SELECT content FROM templates WHERE format = 'mihomo' AND profile = 'default'`).Scan(&content); err != nil {
+			t.Fatalf("query mihomo template (call %d): %v", i, err)
+		}
+		if content != "pre-existing-legacy-content" {
+			t.Errorf("call %d: expected legacy row to be left untouched, got %q", i, content)
+		}
+	}
+}
+
 func TestImport_RoutingRulesRoundTrip(t *testing.T) {
 	db := openTestDB(t)
 	if err := Import(db, repoWebDir); err != nil {

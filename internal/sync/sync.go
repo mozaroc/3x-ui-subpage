@@ -256,6 +256,28 @@ func (s *Store) RollupStatusForUser(userID int64) (string, error) {
 	}
 }
 
+// ReapStale re-queues jobs stuck in_progress past cutoff (a UnixNano
+// timestamp) back to pending. A job is marked in_progress before it's
+// dispatched (ClaimBatch) and only leaves that state via MarkSuccess/
+// MarkRetry/MarkFailedTerminal — if the process crashes (or those calls
+// themselves fail) between the two, nothing else would ever reclaim it, and
+// it would report "syncing" forever. Returns the number of jobs reclaimed.
+func (s *Store) ReapStale(cutoff int64) (int64, error) {
+	now := time.Now().UnixNano()
+	res, err := s.db.Exec(`
+		UPDATE sync_jobs SET status = ?, next_attempt_at = ?, updated_at = ?
+		WHERE status = ? AND updated_at < ?`,
+		StatusPending, now, now, StatusInProgress, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("sync: reap stale: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("sync: reap stale rows affected: %w", err)
+	}
+	return n, nil
+}
+
 // Prune deletes successful jobs older than cutoff (a UnixNano timestamp) so
 // the audit log doesn't grow unbounded. Failed/pending/in_progress jobs are
 // always kept regardless of age.

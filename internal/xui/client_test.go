@@ -331,6 +331,97 @@ func TestClient_GetClient_OtherFailurePropagates(t *testing.T) {
 	}
 }
 
+func TestClient_DetachClient_RecordNotFoundIsIdempotentSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeFailure(w, "record not found")
+	}))
+	defer srv.Close()
+
+	c, err := New(srv.URL, "key", 5*time.Second, 3, 10*time.Millisecond)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// A retry landing after the detach already took effect (response lost,
+	// not the operation) must not be reported as a failed sync.
+	if err := c.DetachClient(t.Context(), "ghost", []int{1}); err != nil {
+		t.Fatalf("expected record-not-found to be treated as success, got %v", err)
+	}
+}
+
+func TestClient_DeleteClient_RecordNotFoundIsIdempotentSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeFailure(w, "record not found")
+	}))
+	defer srv.Close()
+
+	c, err := New(srv.URL, "key", 5*time.Second, 3, 10*time.Millisecond)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if err := c.DeleteClient(t.Context(), "ghost"); err != nil {
+		t.Fatalf("expected record-not-found to be treated as success, got %v", err)
+	}
+}
+
+func TestClient_ResetClientTraffic_RecordNotFoundIsIdempotentSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeFailure(w, "record not found")
+	}))
+	defer srv.Close()
+
+	c, err := New(srv.URL, "key", 5*time.Second, 3, 10*time.Millisecond)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if err := c.ResetClientTraffic(t.Context(), "ghost"); err != nil {
+		t.Fatalf("expected record-not-found to be treated as success, got %v", err)
+	}
+}
+
+func TestClient_DeleteClient_OtherFailurePropagates(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeFailure(w, "internal database error")
+	}))
+	defer srv.Close()
+
+	c, err := New(srv.URL, "key", 5*time.Second, 3, 10*time.Millisecond)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if err := c.DeleteClient(t.Context(), "alice"); err == nil {
+		t.Fatal("expected a non-not-found failure to still propagate as an error")
+	}
+}
+
+func TestClient_StopsRetryingImmediatelyOnContextCancellation(t *testing.T) {
+	var attempts int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&attempts, 1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	c, err := New(srv.URL, "key", 5*time.Second, 5, 50*time.Millisecond)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := c.ListInbounds(ctx); err == nil {
+		t.Fatal("expected an error for an already-cancelled context")
+	}
+	if got := atomic.LoadInt32(&attempts); got > 1 {
+		t.Fatalf("expected at most 1 request against an already-cancelled context, got %d", got)
+	}
+}
+
 func TestCachedLister_Invalidate(t *testing.T) {
 	fake := &fakeInboundLister{inbounds: []Inbound{{ID: 1}}}
 	cl := NewCachedLister(fake, time.Hour)

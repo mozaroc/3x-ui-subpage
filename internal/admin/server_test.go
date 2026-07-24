@@ -122,6 +122,48 @@ func TestLogin_Success(t *testing.T) {
 	}
 }
 
+func TestLogin_SecureCookieOverPlainHTTP(t *testing.T) {
+	s, _ := newTestServer(t)
+	cookie := loginAndGetCookie(t, s)
+	if cookie.Secure {
+		t.Error("expected non-Secure cookie when neither r.TLS nor X-Forwarded-Proto indicate HTTPS")
+	}
+}
+
+func TestLogin_SecureCookieBehindTLSTerminatingProxy(t *testing.T) {
+	// This service's documented deployment (install.sh) always has nginx
+	// terminate TLS and proxy to this process over plain loopback HTTP, so
+	// r.TLS is never set on the Go side — only X-Forwarded-Proto says the
+	// original request was HTTPS.
+	s, _ := newTestServer(t)
+	form := url.Values{"username": {"admin"}, "password": {"correct-horse-battery-staple"}}
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	rec := httptest.NewRecorder()
+
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("login: expected 302, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var cookie *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == sessionCookieName {
+			cookie = c
+		}
+	}
+	if cookie == nil {
+		t.Fatal("login: no session cookie set")
+	}
+	if !cookie.Secure {
+		t.Error("expected Secure cookie when X-Forwarded-Proto: https is present")
+	}
+	if rec.Header().Get("Strict-Transport-Security") == "" {
+		t.Error("expected HSTS header when X-Forwarded-Proto: https is present")
+	}
+}
+
 func TestLogin_WrongPasswordFails(t *testing.T) {
 	s, _ := newTestServer(t)
 	form := url.Values{"username": {"admin"}, "password": {"wrong"}}

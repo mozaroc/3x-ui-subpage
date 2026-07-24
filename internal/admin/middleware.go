@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"crypto/subtle"
 	"net/http"
 
 	"github.com/irazin/3x-ui-subpage/internal/adminauth"
@@ -57,7 +58,10 @@ func (s *Server) verifyCSRF(next http.Handler) http.Handler {
 			return
 		}
 
-		if r.FormValue("csrf_token") != sess.CSRFToken {
+		token := r.FormValue("csrf_token")
+		match := len(token) == len(sess.CSRFToken) &&
+			subtle.ConstantTimeCompare([]byte(token), []byte(sess.CSRFToken)) == 1
+		if !match {
 			s.logger.Warn("admin: csrf token mismatch", "path", r.URL.Path, "remote_ip", ratelimit.ClientIP(r))
 			http.Error(w, "forbidden: invalid csrf token", http.StatusForbidden)
 			return
@@ -65,6 +69,19 @@ func (s *Server) verifyCSRF(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isRequestSecure reports whether r arrived over HTTPS, either directly
+// (r.TLS set) or via a reverse proxy that terminated TLS and forwarded the
+// original scheme (X-Forwarded-Proto: https) — this service's documented
+// deployment (install.sh) always has nginx terminate TLS and proxy to this
+// process over plain loopback HTTP, so r.TLS alone is never set there and
+// checking it exclusively would silently disable Secure cookies and HSTS in
+// the intended production setup. The server only ever listens on loopback
+// (nginx is the sole caller), so the header can't be spoofed by an
+// end-client.
+func isRequestSecure(r *http.Request) bool {
+	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 }
 
 // secureHeaders applies the standard defensive response headers to every
@@ -81,7 +98,7 @@ func secureHeaders(next http.Handler) http.Handler {
 		// script or style context, so the XSS risk that keyword normally
 		// carries doesn't apply here.
 		h.Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'")
-		if r.TLS != nil {
+		if isRequestSecure(r) {
 			h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
 		}
 		next.ServeHTTP(w, r)
@@ -94,7 +111,7 @@ func setSessionCookie(w http.ResponseWriter, r *http.Request, sess adminauth.Ses
 		Value:    sess.ID,
 		Path:     "/admin",
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   isRequestSecure(r),
 		SameSite: http.SameSiteLaxMode,
 		Expires:  sess.ExpiresAt,
 	})
@@ -106,7 +123,7 @@ func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 		Value:    "",
 		Path:     "/admin",
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   isRequestSecure(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})

@@ -5,6 +5,7 @@ package tmplfuncs
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"net/url"
 	"strings"
 	"text/template"
@@ -14,8 +15,30 @@ import (
 // templates.
 func FuncMap() template.FuncMap {
 	return template.FuncMap{
-		"urlquery": url.QueryEscape,
-		"b64":      func(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) },
-		"join":     strings.Join,
+		"urlquery":  url.QueryEscape,
+		"b64":       func(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) },
+		"join":      strings.Join,
+		"jsonstr":   jsonString,
+		"splitJSON": splitJSON,
 	}
+}
+
+// jsonString renders s as a properly-escaped, double-quoted JSON string
+// literal (quotes included) — for interpolating arbitrary field values
+// (remarks, passwords, SNI, ...) into a JSON-format template without a
+// stray '"' or '\' in the value breaking the surrounding document.
+// json.Marshal of a string never fails.
+func jsonString(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
+
+// splitJSON splits s on sep and renders the result as a JSON string array
+// (e.g. for a comma-joined ALPN list) — "" renders as "[]", never [""].
+func splitJSON(sep, s string) string {
+	if s == "" {
+		return "[]"
+	}
+	b, _ := json.Marshal(strings.Split(s, sep))
+	return string(b)
 }

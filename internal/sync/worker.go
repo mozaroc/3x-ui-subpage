@@ -27,6 +27,13 @@ const (
 	defaultMaxAttempts  = 8
 	maxBackoff          = 60 * time.Second
 	pruneAfter          = 7 * 24 * time.Hour
+
+	// staleInProgressAfter bounds how long a job may sit in_progress before
+	// ReapStale assumes the worker that claimed it died (or crashed) mid-job
+	// and re-queues it. Comfortably longer than one dispatch can legitimately
+	// take: doJSONBody's own worst case is maxAttempts retries each waiting
+	// up to its backoff, still well under a minute for typical xui timeouts.
+	staleInProgressAfter = 5 * time.Minute
 )
 
 // Worker drains pending sync_jobs, pushing each to the panel via Writer,
@@ -78,6 +85,12 @@ func (w *Worker) Run(ctx context.Context) {
 // successful jobs. Exported so tests can drive it deterministically instead
 // of waiting on the ticker.
 func (w *Worker) Tick(ctx context.Context) {
+	if n, err := w.jobs.ReapStale(time.Now().Add(-staleInProgressAfter).UnixNano()); err != nil {
+		w.logger.Warn("sync: reap stale failed", "err", err)
+	} else if n > 0 {
+		w.logger.Warn("sync: reclaimed stale in_progress jobs", "count", n)
+	}
+
 	jobs, err := w.jobs.ClaimBatch(w.batchSize)
 	if err != nil {
 		w.logger.Error("sync: claim batch failed", "err", err)

@@ -172,6 +172,36 @@ func TestSaveSetting_KnownKeySchemaMismatchRejected(t *testing.T) {
 	}
 }
 
+func TestSaveSetting_XUIMissingBaseURLRejected(t *testing.T) {
+	db := openTestDB(t)
+	if err := SaveSetting(db, "xui", []byte(`{"api_key":"k"}`)); err == nil {
+		t.Fatal("expected error for xui setting missing base_url")
+	}
+}
+
+func TestSaveSetting_SubscriptionMissingPublicURLRejected(t *testing.T) {
+	db := openTestDB(t)
+	if err := SaveSetting(db, "subscription", []byte(`{"server_host":"vpn.example.com"}`)); err == nil {
+		t.Fatal("expected error for subscription setting missing public_url")
+	}
+}
+
+func TestSaveSetting_LoggingBadFormatRejected(t *testing.T) {
+	db := openTestDB(t)
+	if err := SaveSetting(db, "logging", []byte(`{"level":"info","format":"xml"}`)); err == nil {
+		t.Fatal("expected error for logging.format not in {json,console}")
+	}
+}
+
+func TestSaveSetting_UnrelatedSectionUnaffectedByOtherSectionsMissing(t *testing.T) {
+	// Saving e.g. "support" must not require xui/subscription to already be
+	// configured — SaveSetting validates only the section being saved.
+	db := openTestDB(t)
+	if err := SaveSetting(db, "support", []byte(`{"telegram":"https://t.me/example"}`)); err != nil {
+		t.Fatalf("expected support setting to save without xui/subscription configured: %v", err)
+	}
+}
+
 func TestSaveSetting_UnknownKeyStillAcceptedIfValidJSON(t *testing.T) {
 	db := openTestDB(t)
 	if err := SaveSetting(db, "some_future_section", []byte(`{"whatever":true}`)); err != nil {

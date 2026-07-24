@@ -46,6 +46,19 @@ CREATE TABLE IF NOT EXISTS templates (
     PRIMARY KEY (format, profile, protocol)
 );
 
+-- Tracks which (format, profile, protocol) template rows the importer itself
+-- last wrote, and when — lets a re-import prune a row whose source file was
+-- since deleted, but only when the row's own updated_at still matches what
+-- the importer last set it to (i.e. no admin edit happened in between, so
+-- nothing hand-authored is ever silently deleted). See internal/importer.
+CREATE TABLE IF NOT EXISTS import_manifest (
+    format     TEXT NOT NULL,
+    profile    TEXT NOT NULL,
+    protocol   TEXT NOT NULL DEFAULT '',
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (format, profile, protocol)
+);
+
 CREATE TABLE IF NOT EXISTS assignments (
     sub_id     TEXT PRIMARY KEY,
     profile    TEXT NOT NULL,

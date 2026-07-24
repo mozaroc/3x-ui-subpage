@@ -71,6 +71,7 @@ PUBLIC_URL=""
 ADMIN_PASSWORD=""
 DETECTED_DOMAIN=""
 DETECTED_XUI_PORT=""
+DETECTED_VHOST=""
 
 # ---------------------------------------------------------------------------
 # logging / arg parsing
@@ -174,8 +175,12 @@ detect_mode() {
   log "Detected install mode: ${MODE}"
 }
 
+current_server_name() {
+  awk '/server_name/{print $2; exit}' "$1" 2>/dev/null | tr -d ';'
+}
+
 detect_panel_domain_port() {
-  local cert_file="" domain="" port=""
+  local cert_file="" domain="" port="" vhost="" candidate
   if [[ -f /etc/x-ui/x-ui.db ]]; then
     cert_file="$(sqlite3 /etc/x-ui/x-ui.db "SELECT value FROM settings WHERE key='webCertFile'" 2>/dev/null || true)"
     if [[ -n "$cert_file" ]]; then
@@ -183,15 +188,46 @@ detect_panel_domain_port() {
     fi
     port="$(sqlite3 /etc/x-ui/x-ui.db "SELECT value FROM settings WHERE key='webPort'" 2>/dev/null || true)"
   fi
-  if [[ -z "$domain" ]]; then
-    local vhost
-    vhost="$(grep -l 'listen 7443' /etc/nginx/sites-available/* 2>/dev/null | head -n1 || true)"
-    if [[ -n "$vhost" ]]; then
-      domain="$(awk '/server_name/{print $2; exit}' "$vhost" | tr -d ';')"
+
+  # Find the actual panel vhost file (not just its domain) so later steps
+  # can insert into the file we actually found, instead of re-guessing a
+  # path from the domain string (which may not match the real filename).
+  for candidate in /etc/nginx/sites-available/*; do
+    [[ -f "$candidate" ]] || continue
+    grep -q 'listen 7443' "$candidate" || continue
+    if [[ -z "$domain" ]]; then
+      vhost="$candidate"
+      domain="$(current_server_name "$candidate")"
+      break
+    elif [[ "$(current_server_name "$candidate")" == "$domain" ]]; then
+      vhost="$candidate"
+      break
     fi
-  fi
+  done
+
   DETECTED_DOMAIN="$domain"
   DETECTED_XUI_PORT="${port:-2053}"
+  DETECTED_VHOST="$vhost"
+}
+
+# Locate the panel vhost file for $DOMAIN: reuse the file detect_panel_domain_port
+# already found if the domain wasn't changed since, else search sites-available
+# by server_name, else fall back to the filename==domain convention.
+resolve_panel_vhost() {
+  if [[ -n "$DETECTED_VHOST" && "$DOMAIN" == "$DETECTED_DOMAIN" ]]; then
+    echo "$DETECTED_VHOST"
+    return
+  fi
+  local f
+  for f in /etc/nginx/sites-available/*; do
+    [[ -f "$f" ]] || continue
+    [[ "$(current_server_name "$f")" == "$DOMAIN" ]] && { echo "$f"; return; }
+  done
+  if [[ -f "/etc/nginx/sites-available/${DOMAIN}" ]]; then
+    echo "/etc/nginx/sites-available/${DOMAIN}"
+    return
+  fi
+  return 1
 }
 
 # ---------------------------------------------------------------------------
@@ -464,14 +500,23 @@ nginx_test_and_reload() {
 configure_nginx_dedicated() {
   resolve_random_path
 
-  # Idempotent re-run: if a previous run already wrote this vhost (it
-  # already has our location block), leave it and certbot's own edits
-  # alone rather than clobbering them and re-requesting a certificate —
-  # Let's Encrypt rate-limits repeated issuance for the same domain.
-  if [[ -f "$NGINX_VHOST_DEDICATED" ]] && grep -q "location /${RANDOM_PATH}/ {" "$NGINX_VHOST_DEDICATED"; then
-    log "Vhost ${NGINX_VHOST_DEDICATED} already configured, leaving it and the existing certificate as-is"
+  local existing_domain=""
+  [[ -f "$NGINX_VHOST_DEDICATED" ]] && existing_domain="$(current_server_name "$NGINX_VHOST_DEDICATED")"
+
+  # Idempotent re-run: if a previous run already wrote this vhost for the
+  # same domain (it already has our location block), leave it and certbot's
+  # own edits alone rather than clobbering them and re-requesting a
+  # certificate — Let's Encrypt rate-limits repeated issuance for the same
+  # domain.
+  if [[ -n "$existing_domain" && "$existing_domain" == "$DOMAIN" ]] \
+    && grep -q "location /${RANDOM_PATH}/ {" "$NGINX_VHOST_DEDICATED"; then
+    log "Vhost ${NGINX_VHOST_DEDICATED} already configured for ${DOMAIN}, leaving it and the existing certificate as-is"
     nginx_test_and_reload
     return
+  fi
+
+  if [[ -n "$existing_domain" && "$existing_domain" != "$DOMAIN" ]]; then
+    warn "existing vhost is for ${existing_domain}, requested domain is ${DOMAIN} — rewriting vhost and requesting a new certificate"
   fi
 
   log "Writing nginx vhost ${NGINX_VHOST_DEDICATED}"
@@ -495,8 +540,8 @@ EOF
 
 configure_nginx_panel() {
   resolve_random_path
-  local vhost="/etc/nginx/sites-available/${DOMAIN}"
-  [[ -f "$vhost" ]] || die "expected panel vhost ${vhost} not found for domain ${DOMAIN} — pass --domain to override detection"
+  local vhost
+  vhost="$(resolve_panel_vhost)" || die "could not find an nginx vhost with server_name ${DOMAIN} under /etc/nginx/sites-available — pass --domain to match an existing vhost"
 
   log "Writing nginx snippet ${NGINX_SNIPPET}"
   : >"$NGINX_SNIPPET"

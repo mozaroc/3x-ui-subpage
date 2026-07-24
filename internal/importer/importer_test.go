@@ -2,6 +2,7 @@ package importer
 
 import (
 	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -143,6 +144,79 @@ func TestImport_IsRerunnable(t *testing.T) {
 	}
 	if ruleCount == 0 {
 		t.Error("expected routing_rules to survive a second import without duplicating")
+	}
+}
+
+// copyWebDir copies the checked-in web/ tree into a fresh temp dir so a test
+// can mutate it (remove a template file) without touching the repo.
+func copyWebDir(t *testing.T) string {
+	t.Helper()
+	dst := t.TempDir()
+	if err := os.CopyFS(dst, os.DirFS(repoWebDir)); err != nil {
+		t.Fatalf("copy web dir: %v", err)
+	}
+	return dst
+}
+
+func TestImport_PrunesOrphanedTemplateAfterFileRemoved(t *testing.T) {
+	db := openTestDB(t)
+	webDir := copyWebDir(t)
+
+	if err := Import(db, webDir); err != nil {
+		t.Fatalf("first Import: %v", err)
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM templates WHERE format='xray_link' AND profile='default' AND protocol='shadowsocks'`).Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected shadowsocks template seeded before removal, got count=%d", count)
+	}
+
+	if err := os.Remove(filepath.Join(webDir, "templates", "xray", "shadowsocks.tmpl")); err != nil {
+		t.Fatalf("remove shadowsocks.tmpl: %v", err)
+	}
+	if err := Import(db, webDir); err != nil {
+		t.Fatalf("second Import: %v", err)
+	}
+
+	if err := db.QueryRow(`SELECT COUNT(*) FROM templates WHERE format='xray_link' AND profile='default' AND protocol='shadowsocks'`).Scan(&count); err != nil {
+		t.Fatalf("count after removal: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected orphaned shadowsocks template to be pruned after re-import, got count=%d", count)
+	}
+}
+
+func TestImport_DoesNotPruneAdminEditedRow(t *testing.T) {
+	db := openTestDB(t)
+	webDir := copyWebDir(t)
+
+	if err := Import(db, webDir); err != nil {
+		t.Fatalf("first Import: %v", err)
+	}
+
+	// Simulate an admin hand-editing this template via /admin after import.
+	if _, err := db.Exec(`
+		UPDATE templates SET content = 'admin-customized', updated_at = updated_at + 1
+		WHERE format='xray_link' AND profile='default' AND protocol='shadowsocks'`); err != nil {
+		t.Fatalf("simulate admin edit: %v", err)
+	}
+
+	if err := os.Remove(filepath.Join(webDir, "templates", "xray", "shadowsocks.tmpl")); err != nil {
+		t.Fatalf("remove shadowsocks.tmpl: %v", err)
+	}
+	if err := Import(db, webDir); err != nil {
+		t.Fatalf("second Import: %v", err)
+	}
+
+	var content string
+	if err := db.QueryRow(`SELECT content FROM templates WHERE format='xray_link' AND profile='default' AND protocol='shadowsocks'`).Scan(&content); err != nil {
+		t.Fatalf("expected admin-edited row to survive re-import: %v", err)
+	}
+	if content != "admin-customized" {
+		t.Errorf("expected admin-edited content to survive re-import untouched, got %q", content)
 	}
 }
 

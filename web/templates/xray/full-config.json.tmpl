@@ -9,21 +9,21 @@
   "outbounds": [
 {{range $i, $c := .Clients}}{{if eq $i 0}}{{$firstTag = $c.Remark}}{{end}}{{if $i}},
 {{end}}    {
-      "tag": "{{$c.Remark}}",
-      "protocol": "{{$c.Protocol}}",
+      "tag": {{jsonstr $c.Remark}},
+      "protocol": {{jsonstr $c.Protocol}},
       "settings": {
-{{if eq $c.Protocol "vless"}}        "vnext": [{"address": "{{$c.Server}}", "port": {{$c.Port}}, "users": [{"id": "{{$c.UUID}}", "encryption": "none"{{if $c.Flow}}, "flow": "{{$c.Flow}}"{{end}}}]}]
-{{else if eq $c.Protocol "vmess"}}        "vnext": [{"address": "{{$c.Server}}", "port": {{$c.Port}}, "users": [{"id": "{{$c.UUID}}", "alterId": 0}]}]
-{{else if eq $c.Protocol "trojan"}}        "servers": [{"address": "{{$c.Server}}", "port": {{$c.Port}}, "password": "{{$c.Password}}"}]
-{{else if eq $c.Protocol "shadowsocks"}}        "servers": [{"address": "{{$c.Server}}", "port": {{$c.Port}}, "method": "{{$c.Method}}", "password": "{{$c.Password}}"}]
+{{if eq $c.Protocol "vless"}}        "vnext": [{"address": {{jsonstr $c.Server}}, "port": {{$c.Port}}, "users": [{"id": {{jsonstr $c.UUID}}, "encryption": "none"{{if $c.Flow}}, "flow": {{jsonstr $c.Flow}}{{end}}}]}]
+{{else if eq $c.Protocol "vmess"}}        "vnext": [{"address": {{jsonstr $c.Server}}, "port": {{$c.Port}}, "users": [{"id": {{jsonstr $c.UUID}}, "alterId": 0}]}]
+{{else if eq $c.Protocol "trojan"}}        "servers": [{"address": {{jsonstr $c.Server}}, "port": {{$c.Port}}, "password": {{jsonstr $c.Password}}}]
+{{else if eq $c.Protocol "shadowsocks"}}        "servers": [{"address": {{jsonstr $c.Server}}, "port": {{$c.Port}}, "method": {{jsonstr $c.Method}}, "password": {{jsonstr $c.Password}}}]
 {{end}}      },
       "streamSettings": {
-        "network": "{{$c.Network}}",
-        "security": "{{$c.Security}}"
-{{if eq $c.Security "tls"}}        ,"tlsSettings": {"serverName": "{{$c.SNI}}", "fingerprint": "{{$c.Fingerprint}}"{{if $c.ALPN}}, "alpn": ["{{$c.ALPN}}"]{{end}}{{if $c.Insecure}}, "allowInsecure": true{{end}}}
-{{else if eq $c.Security "reality"}}        ,"realitySettings": {"serverName": "{{$c.SNI}}", "publicKey": "{{$c.PublicKey}}", "shortId": "{{$c.ShortID}}", "fingerprint": "{{$c.Fingerprint}}"{{if $c.SpiderX}}, "spiderX": "{{$c.SpiderX}}"{{end}}}
-{{end}}{{if eq $c.Network "ws"}}        ,"wsSettings": {"path": "{{$c.Path}}", "headers": {"Host": "{{$c.Host}}"}}
-{{else if eq $c.Network "grpc"}}        ,"grpcSettings": {"serviceName": "{{$c.ServiceName}}"}
+        "network": {{jsonstr $c.Network}},
+        "security": {{jsonstr $c.Security}}
+{{if eq $c.Security "tls"}}        ,"tlsSettings": {"serverName": {{jsonstr $c.SNI}}, "fingerprint": {{jsonstr $c.Fingerprint}}{{if $c.ALPN}}, "alpn": {{splitJSON "," $c.ALPN}}{{end}}{{if $c.Insecure}}, "allowInsecure": true{{end}}}
+{{else if eq $c.Security "reality"}}        ,"realitySettings": {"serverName": {{jsonstr $c.SNI}}, "publicKey": {{jsonstr $c.PublicKey}}, "shortId": {{jsonstr $c.ShortID}}, "fingerprint": {{jsonstr $c.Fingerprint}}{{if $c.SpiderX}}, "spiderX": {{jsonstr $c.SpiderX}}{{end}}}
+{{end}}{{if eq $c.Network "ws"}}        ,"wsSettings": {"path": {{jsonstr $c.Path}}, "headers": {"Host": {{jsonstr $c.Host}}}}
+{{else if eq $c.Network "grpc"}}        ,"grpcSettings": {"serviceName": {{jsonstr $c.ServiceName}}}
 {{end}}      }
     }
 {{end}}
@@ -31,7 +31,7 @@
   "routing": {
     "domainStrategy": "AsIs",
     "rules": [
-      {"type": "field", "outboundTag": "{{$firstTag}}", "network": "tcp,udp"}
+      {"type": "field", "outboundTag": {{jsonstr $firstTag}}, "network": "tcp,udp"}
     ]
   }
 }

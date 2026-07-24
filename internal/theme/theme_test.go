@@ -190,6 +190,51 @@ func TestServeStatic_ServesAndReloads(t *testing.T) {
 	}
 }
 
+func TestServeStatic_NonStaticFileNeverServed(t *testing.T) {
+	db := openTestDB(t)
+	seedTheme(t, db, "test", 1)
+	seedFile(t, db, "test", "layout.html", `{{define "layout"}}x{{end}}`, 1)
+	seedFile(t, db, "test", "pages/subscription.html", `{{define "content"}}x{{end}}`, 1)
+	// Not a template (doesn't end in .html) and not under static/ — should
+	// never be exposed as a servable asset.
+	seedFile(t, db, "test", "notes.txt", "internal notes, not for serving", 1)
+
+	e := New(db, "test")
+	req := httptest.NewRequest("GET", "/assets/test/notes.txt", nil)
+	rec := httptest.NewRecorder()
+
+	found, err := e.ServeStatic(rec, req, "notes.txt")
+	if err != nil {
+		t.Fatalf("ServeStatic: %v", err)
+	}
+	if found {
+		t.Fatal("expected a non-static, non-html theme file to never be servable")
+	}
+}
+
+func TestServeStatic_UnknownExtensionStillGetsAContentType(t *testing.T) {
+	db := openTestDB(t)
+	seedTheme(t, db, "test", 1)
+	seedFile(t, db, "test", "layout.html", `{{define "layout"}}x{{end}}`, 1)
+	seedFile(t, db, "test", "pages/subscription.html", `{{define "content"}}x{{end}}`, 1)
+	seedFile(t, db, "test", "static/fonts/glyph.somethingobscure", "binary-ish content", 1)
+
+	e := New(db, "test")
+	req := httptest.NewRequest("GET", "/assets/test/fonts/glyph.somethingobscure", nil)
+	rec := httptest.NewRecorder()
+
+	found, err := e.ServeStatic(rec, req, "fonts/glyph.somethingobscure")
+	if err != nil {
+		t.Fatalf("ServeStatic: %v", err)
+	}
+	if !found {
+		t.Fatal("expected the asset to be found")
+	}
+	if ct := rec.Header().Get("Content-Type"); ct == "" {
+		t.Error("expected a Content-Type to always be set, even for an unrecognized extension")
+	}
+}
+
 func TestServeStatic_NotFound(t *testing.T) {
 	db := openTestDB(t)
 	seedTheme(t, db, "test", 1)

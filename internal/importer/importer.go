@@ -17,6 +17,7 @@ package importer
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -228,6 +229,89 @@ func importOneTheme(db *sql.DB, themeDir, slug string, now int64) error {
 	return tx.Commit()
 }
 
+// manifestKey identifies one template row's slot; used to detect rows the
+// importer itself previously wrote that have since disappeared from disk.
+type manifestKey struct {
+	Format   string
+	Profile  string
+	Protocol string
+}
+
+// loadManifest returns every import_manifest row for the given formats:
+// what the importer itself wrote the *last* time it ran, and when.
+func loadManifest(tx *sql.Tx, formats []string) (map[manifestKey]int64, error) {
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(formats)), ",")
+	args := make([]any, len(formats))
+	for i, f := range formats {
+		args[i] = f
+	}
+	rows, err := tx.Query(`SELECT format, profile, protocol, updated_at FROM import_manifest WHERE format IN (`+placeholders+`)`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("importer: load manifest: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[manifestKey]int64)
+	for rows.Next() {
+		var k manifestKey
+		var updatedAt int64
+		if err := rows.Scan(&k.Format, &k.Profile, &k.Protocol, &updatedAt); err != nil {
+			return nil, fmt.Errorf("importer: scan manifest row: %w", err)
+		}
+		out[k] = updatedAt
+	}
+	return out, rows.Err()
+}
+
+// recordManifest upserts current into import_manifest, marking it as
+// written by this import run at time now.
+func recordManifest(tx *sql.Tx, k manifestKey, now int64) error {
+	_, err := tx.Exec(`
+		INSERT INTO import_manifest (format, profile, protocol, updated_at) VALUES (?, ?, ?, ?)
+		ON CONFLICT(format, profile, protocol) DO UPDATE SET updated_at = excluded.updated_at`,
+		k.Format, k.Profile, k.Protocol, now)
+	return err
+}
+
+// pruneOrphaned deletes templates rows the importer previously wrote (per
+// old, loaded before this run touched anything) whose source file is no
+// longer present this run (absent from current) — but only if the row's
+// updated_at still matches what the importer itself last set it to, i.e. no
+// admin edit has happened via the UI since. An admin-edited row is left
+// alone (and simply drops out of tracking) even if its source file is later
+// removed, since it's no longer purely import-owned content.
+func pruneOrphaned(tx *sql.Tx, old map[manifestKey]int64, current map[manifestKey]bool) error {
+	for k, lastImportedAt := range old {
+		if current[k] {
+			continue
+		}
+		var stillMatches bool
+		var curUpdatedAt int64
+		err := tx.QueryRow(`SELECT updated_at FROM templates WHERE format = ? AND profile = ? AND protocol = ?`,
+			k.Format, k.Profile, k.Protocol).Scan(&curUpdatedAt)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			// already gone
+		case err != nil:
+			return fmt.Errorf("importer: check orphaned %+v: %w", k, err)
+		default:
+			stillMatches = curUpdatedAt == lastImportedAt
+		}
+
+		if stillMatches {
+			if _, err := tx.Exec(`DELETE FROM templates WHERE format = ? AND profile = ? AND protocol = ?`,
+				k.Format, k.Profile, k.Protocol); err != nil {
+				return fmt.Errorf("importer: prune orphaned %+v: %w", k, err)
+			}
+		}
+		if _, err := tx.Exec(`DELETE FROM import_manifest WHERE format = ? AND profile = ? AND protocol = ?`,
+			k.Format, k.Profile, k.Protocol); err != nil {
+			return fmt.Errorf("importer: clear manifest %+v: %w", k, err)
+		}
+	}
+	return nil
+}
+
 func importXrayTemplates(db *sql.DB, dir string, now int64) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -240,6 +324,12 @@ func importXrayTemplates(db *sql.DB, dir string, now int64) error {
 	}
 	defer tx.Rollback()
 
+	oldManifest, err := loadManifest(tx, []string{"xray_link", "xray_json"})
+	if err != nil {
+		return err
+	}
+	current := make(map[manifestKey]bool)
+
 	upsert, err := tx.Prepare(`
 		INSERT INTO templates (format, profile, protocol, content, updated_at)
 		VALUES (?, ?, ?, ?, ?)
@@ -248,6 +338,11 @@ func importXrayTemplates(db *sql.DB, dir string, now int64) error {
 		return fmt.Errorf("importer: prepare upsert: %w", err)
 	}
 	defer upsert.Close()
+
+	track := func(k manifestKey) error {
+		current[k] = true
+		return recordManifest(tx, k, now)
+	}
 
 	for _, e := range entries {
 		name := e.Name()
@@ -272,6 +367,9 @@ func importXrayTemplates(db *sql.DB, dir string, now int64) error {
 				if _, err := upsert.Exec("xray_link", profile, protocol, string(content), now); err != nil {
 					return fmt.Errorf("importer: insert xray_link %s/%s: %w", profile, protocol, err)
 				}
+				if err := track(manifestKey{"xray_link", profile, protocol}); err != nil {
+					return fmt.Errorf("importer: track xray_link %s/%s: %w", profile, protocol, err)
+				}
 			}
 
 		case name == "full-config.json.tmpl":
@@ -281,6 +379,9 @@ func importXrayTemplates(db *sql.DB, dir string, now int64) error {
 			}
 			if _, err := upsert.Exec("xray_json", "default", "", string(content), now); err != nil {
 				return fmt.Errorf("importer: insert xray_json: %w", err)
+			}
+			if err := track(manifestKey{"xray_json", "default", ""}); err != nil {
+				return fmt.Errorf("importer: track xray_json: %w", err)
 			}
 
 		case strings.HasSuffix(name, ".tmpl"):
@@ -292,7 +393,14 @@ func importXrayTemplates(db *sql.DB, dir string, now int64) error {
 			if _, err := upsert.Exec("xray_link", "default", protocol, string(content), now); err != nil {
 				return fmt.Errorf("importer: insert xray_link default/%s: %w", protocol, err)
 			}
+			if err := track(manifestKey{"xray_link", "default", protocol}); err != nil {
+				return fmt.Errorf("importer: track xray_link default/%s: %w", protocol, err)
+			}
 		}
+	}
+
+	if err := pruneOrphaned(tx, oldManifest, current); err != nil {
+		return err
 	}
 
 	return tx.Commit()
@@ -365,6 +473,12 @@ func importYAMLTemplates(db *sql.DB, dir, format string, now int64) error {
 	}
 	defer tx.Rollback()
 
+	oldManifest, err := loadManifest(tx, []string{format})
+	if err != nil {
+		return err
+	}
+	current := make(map[manifestKey]bool)
+
 	upsert, err := tx.Prepare(`
 		INSERT INTO templates (format, profile, protocol, content, updated_at)
 		VALUES (?, ?, '', ?, ?)
@@ -387,6 +501,15 @@ func importYAMLTemplates(db *sql.DB, dir, format string, now int64) error {
 		if _, err := upsert.Exec(format, profile, string(content), now); err != nil {
 			return fmt.Errorf("importer: insert %s/%s: %w", format, profile, err)
 		}
+		k := manifestKey{format, profile, ""}
+		current[k] = true
+		if err := recordManifest(tx, k, now); err != nil {
+			return fmt.Errorf("importer: track %s/%s: %w", format, profile, err)
+		}
+	}
+
+	if err := pruneOrphaned(tx, oldManifest, current); err != nil {
+		return err
 	}
 
 	return tx.Commit()

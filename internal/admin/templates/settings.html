@@ -1,18 +1,568 @@
 {{define "page-settings"}}
+<style>
+  .settings-intro { color: var(--text-muted); font-size: .9rem; margin: -6px 0 18px; max-width: 720px; }
+  .section-nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+  .section-nav a {
+    display: inline-flex; align-items: center; padding: 5px 12px; border-radius: 999px;
+    background: var(--bg-surface); border: 1px solid var(--border); color: var(--text);
+    text-decoration: none; font-size: .78rem; font-weight: 500;
+  }
+  .section-nav a:hover { border-color: var(--primary); color: var(--primary); }
+  .card__title-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .card__title-row .badge { flex-shrink: 0; }
+  .section-desc { color: var(--text-muted); font-size: .85rem; margin: -4px 0 16px; max-width: 640px; }
+  .help-icon {
+    display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px;
+    border-radius: 50%; background: var(--bg-surface); border: 1px solid var(--border);
+    color: var(--text-muted); font-size: .68rem; font-style: normal; cursor: help; margin-left: 5px;
+  }
+  .field-key { text-align: left; }
+  .btn--sm { padding: 6px 10px; font-size: .78rem; }
+  .dynamic-list__rows { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+  .dynamic-list__row { display: flex; gap: 6px; }
+  .dynamic-list__row input { flex: 1; }
+  .key-row { display: flex; gap: 6px; align-items: center; }
+  .key-row input { flex: 1; }
+  details.advanced-json { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px; }
+  details.advanced-json summary { cursor: pointer; font-size: .82rem; font-weight: 600; color: var(--text-muted); user-select: none; }
+  details.advanced-json summary:hover { color: var(--text); }
+  details.advanced-json[open] summary { margin-bottom: 4px; }
+  details.advanced-json textarea { margin-top: 10px; min-height: 160px; }
+  textarea.is-invalid { border-color: var(--danger); outline: 2px solid rgba(255,77,79,.25); }
+  .danger-text { color: var(--danger); }
+  .empty-list-hint { font-size: .82rem; color: var(--text-muted); font-style: italic; }
+</style>
+
 <h1>Settings</h1>
+<p class="settings-intro">
+  Configuration for this subscription service itself. Application catalog, themes,
+  generator templates, and routing rules each have their own dedicated, already-structured
+  pages in the nav — this page only covers the settings below.
+</p>
 {{if .Data.Error}}<div class="error">{{.Data.Error}}</div>{{end}}
-{{range .Data.Rows}}
-<div class="card">
-  <h2>{{.Key}}</h2>
-  <form method="post" action="/admin/settings/{{.Key}}">
+
+<nav class="section-nav">
+  <a href="#section-general">General</a>
+  <a href="#section-api">API</a>
+  <a href="#section-subscription">Subscription</a>
+  <a href="#section-qr">QR Codes</a>
+  <a href="#section-theme">Theme</a>
+  <a href="#section-support">Support</a>
+  <a href="#section-security">Security</a>
+</nav>
+
+<!-- ============================== General ============================== -->
+<div class="card" id="section-general">
+  <div class="card__title-row"><h2>General</h2></div>
+  <p class="section-desc">This service's own HTTP server and how much it logs. Rarely needs changing after initial setup.</p>
+
+  <form method="post" action="/admin/settings/server" class="settings-form" data-section="server">
     <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-    <div class="field field--full">
-      <textarea name="value" class="code" spellcheck="false">{{.Value}}</textarea>
+    <div class="form-grid">
+      <div class="field field--lg">
+        <label>Listen address
+          <abbr class="help-icon" title="host:port this service's own HTTP server binds to.">?</abbr>
+        </label>
+        <input type="text" data-key="listen" placeholder="127.0.0.1:8080">
+        <div class="hint">
+          Behind the nginx setups install.sh configures, keep this <code>127.0.0.1:&lt;port&gt;</code> —
+          nginx is the only thing that should reach this process directly. Only use
+          <code>0.0.0.0:&lt;port&gt;</code> if you're intentionally exposing this service to the
+          network without a reverse proxy in front of it. Takes effect on restart.
+        </div>
+      </div>
+      <div class="field field--sm">
+        <label>Read timeout (s)</label>
+        <input type="number" step="1" min="0" data-key="read_timeout" data-scale="1000000000">
+        <div class="hint">Max time to read an incoming request. Default 15s; raise only if you see request-read timeouts in the logs.</div>
+      </div>
+      <div class="field field--sm">
+        <label>Write timeout (s)</label>
+        <input type="number" step="1" min="0" data-key="write_timeout" data-scale="1000000000">
+        <div class="hint">Max time to write a response. Default 15s; raise if large responses get cut off on a slow network.</div>
+      </div>
+      <div class="field field--sm">
+        <label>Idle timeout (s)</label>
+        <input type="number" step="1" min="0" data-key="idle_timeout" data-scale="1000000000">
+        <div class="hint">How long an idle keep-alive connection stays open. Default 60s.</div>
+      </div>
     </div>
-    <div class="actions">
-      <button class="btn btn--primary" type="submit">Save</button>
-    </div>
+    <details class="advanced-json">
+      <summary>Advanced: edit raw JSON</summary>
+      <textarea name="value" class="code" spellcheck="false" data-json-source>{{index $.Data.Values "server"}}</textarea>
+    </details>
+    <div class="actions"><button class="btn btn--primary" type="submit">Save</button></div>
   </form>
 </div>
-{{end}}
+
+<div class="card">
+  <div class="card__title-row"><h2>Logging</h2></div>
+  <p class="section-desc">Verbosity and encoding of what this process writes to stdout/journal.</p>
+
+  <form method="post" action="/admin/settings/logging" class="settings-form" data-section="logging">
+    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+    <div class="form-grid">
+      <div class="field field--md">
+        <label>Level</label>
+        <select data-key="level">
+          <option value="debug">debug</option>
+          <option value="info">info</option>
+          <option value="warn">warn</option>
+          <option value="error">error</option>
+        </select>
+        <div class="hint">
+          <code>debug</code> is very verbose (every panel request, cache hit/miss) — use it temporarily
+          while diagnosing an issue, not permanently. <code>info</code> is the recommended default.
+        </div>
+      </div>
+      <div class="field field--md">
+        <label>Format</label>
+        <select data-key="format">
+          <option value="json">json</option>
+          <option value="console">console</option>
+        </select>
+        <div class="hint">
+          <code>json</code> — one JSON object per line, best for journald/a log aggregator.
+          <code>console</code> — human-readable colored text, nicer for tailing directly in a terminal.
+        </div>
+      </div>
+    </div>
+    <details class="advanced-json">
+      <summary>Advanced: edit raw JSON</summary>
+      <textarea name="value" class="code" spellcheck="false" data-json-source>{{index $.Data.Values "logging"}}</textarea>
+    </details>
+    <div class="actions"><button class="btn btn--primary" type="submit">Save</button></div>
+  </form>
+</div>
+
+<!-- ================================ API ================================= -->
+<div class="card" id="section-api">
+  <div class="card__title-row"><h2>API (3x-ui panel connection)</h2> <span class="badge">Required</span></div>
+  <p class="section-desc">How this service reaches the 3x-ui panel it manages subscribers on. Nothing else works until both fields below are set.</p>
+
+  <form method="post" action="/admin/settings/xui" class="settings-form" data-section="xui">
+    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+    <div class="form-grid">
+      <div class="field field--lg">
+        <label>Panel API base URL
+          <abbr class="help-icon" title="The 3x-ui panel's own API base URL.">?</abbr>
+        </label>
+        <input type="text" data-key="base_url" placeholder="http://127.0.0.1:2053" required>
+        <div class="hint">
+          E.g. <code>http://127.0.0.1:2053</code> if this service runs on the same box as the panel,
+          or <code>https://panel.example.com:2053</code> otherwise. Must match the panel's actual
+          listen address/port (and base path, if it has one).
+        </div>
+      </div>
+      <div class="field field--lg">
+        <label>Panel API key
+          <abbr class="help-icon" title="Bearer token this service authenticates to the panel with.">?</abbr>
+        </label>
+        <div class="key-row">
+          <input type="password" data-key="api_key" class="mono" autocomplete="off" required>
+          <button type="button" class="btn btn--secondary btn--sm" data-toggle-reveal>Show</button>
+        </div>
+        <div class="hint">
+          Generate this in the panel's own UI: <strong>Settings &rarr; Security &rarr; API Token</strong>.
+          Anyone with this key can fully manage the panel's inbounds and clients — treat it like a password.
+        </div>
+      </div>
+      <div class="field field--sm">
+        <label>Request timeout (s)</label>
+        <input type="number" step="1" min="0" data-key="timeout" data-scale="1000000000">
+        <div class="hint">Max time to wait for one panel request before treating it as failed. Default 10s.</div>
+      </div>
+      <div class="field field--sm">
+        <label>Retry attempts</label>
+        <input type="number" step="1" min="1" data-key="retry.max_attempts">
+        <div class="hint">
+          How many times to retry a request that times out or gets a 5xx from the panel.
+          Doesn't apply to a 401/403 (bad API key) — that fails immediately. Default 3.
+        </div>
+      </div>
+      <div class="field field--sm">
+        <label>Retry backoff (s)</label>
+        <input type="number" step="0.1" min="0" data-key="retry.backoff" data-scale="1000000000">
+        <div class="hint">Base delay between retries — the Nth retry waits backoff &times; N. Default 0.5s.</div>
+      </div>
+    </div>
+    <div class="form-section">
+      <div class="switch-field">
+        <span class="switch">
+          <input type="checkbox" data-key="insecure_skip_verify">
+          <span class="track"></span>
+        </span>
+        <label>Skip TLS certificate verification</label>
+      </div>
+      <div class="hint danger-text">
+        Only enable this for a panel behind a self-signed certificate you've personally vetted and
+        that isn't reachable from the public internet. Leaving this off protects your API key from
+        a man-in-the-middle on the connection to the panel.
+      </div>
+    </div>
+    <details class="advanced-json">
+      <summary>Advanced: edit raw JSON</summary>
+      <textarea name="value" class="code" spellcheck="false" data-json-source>{{index $.Data.Values "xui"}}</textarea>
+    </details>
+    <div class="actions"><button class="btn btn--primary" type="submit">Save</button></div>
+  </form>
+</div>
+
+<!-- ============================ Subscription ============================ -->
+<div class="card" id="section-subscription">
+  <div class="card__title-row"><h2>Subscription</h2> <span class="badge">Required</span></div>
+  <p class="section-desc">What subscribers' links are built from, and how the panel's client list is cached.</p>
+
+  <form method="post" action="/admin/settings/subscription" class="settings-form" data-section="subscription">
+    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+    <div class="form-grid">
+      <div class="field field--lg">
+        <label>Public URL
+          <abbr class="help-icon" title="Base URL subscribers' links are built from.">?</abbr>
+        </label>
+        <input type="text" data-key="public_url" placeholder="https://your-domain.tld" required>
+        <div class="hint">
+          The base URL subscribers' links (<code>/sub/&lt;id&gt;</code>, QR codes, generated client
+          configs) are built from — must be a URL a client can actually reach from outside. If this
+          service sits behind a reverse-proxy random path (as install.sh's dedicated/panel modes set
+          up), include that path here too, e.g. <code>https://your-domain/AbC123xyz</code>. Getting
+          this wrong is the single most common cause of "the subscription link doesn't work" reports.
+        </div>
+      </div>
+      <div class="field field--lg">
+        <label>Server host
+          <abbr class="help-icon" title="Address VPN clients should connect to.">?</abbr>
+        </label>
+        <input type="text" data-key="server_host" placeholder="vpn.example.com" required>
+        <div class="hint">
+          Usually this server's public IP or domain. Only used when an inbound's own listen address
+          is a wildcard (<code>0.0.0.0</code> or <code>::</code>) and therefore not itself usable as
+          a client connect address.
+        </div>
+      </div>
+      <div class="field field--sm">
+        <label>Update interval (h)</label>
+        <input type="number" step="1" min="0" data-key="update_interval" data-scale="3600000000000">
+        <div class="hint">Reserved for a future client-refresh hint; not read by anything in this version yet. Safe to leave at default.</div>
+      </div>
+      <div class="field field--sm">
+        <label>Cache TTL (s)</label>
+        <input type="number" step="1" min="0" data-key="cache_ttl" data-scale="1000000000">
+        <div class="hint">
+          How long the panel's inbound/client list is cached in memory before re-fetching. Lower =
+          panel-side changes show up here sooner but more load on the panel API; higher = the
+          opposite. Default 30s.
+        </div>
+      </div>
+    </div>
+    <details class="advanced-json">
+      <summary>Advanced: edit raw JSON</summary>
+      <textarea name="value" class="code" spellcheck="false" data-json-source>{{index $.Data.Values "subscription"}}</textarea>
+    </details>
+    <div class="actions"><button class="btn btn--primary" type="submit">Save</button></div>
+  </form>
+</div>
+
+<!-- ============================== QR Codes =============================== -->
+<div class="card" id="section-qr">
+  <div class="card__title-row"><h2>QR Codes</h2></div>
+  <p class="section-desc">Appearance of the QR code generated for each subscriber's link.</p>
+
+  <form method="post" action="/admin/settings/qr" class="settings-form" data-section="qr">
+    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+    <div class="form-grid">
+      <div class="field field--sm">
+        <label>Size (px)</label>
+        <input type="number" step="1" min="32" data-key="size">
+        <div class="hint">Image size in pixels (square). Default 256; larger helps scanning from a printed page.</div>
+      </div>
+      <div class="field field--sm">
+        <label>Margin (modules)</label>
+        <input type="number" step="1" min="0" data-key="margin">
+        <div class="hint">Quiet-zone border around the code, in QR "modules" (not pixels). Default 4 — too small and some scanners fail to read it.</div>
+      </div>
+      <div class="field field--sm">
+        <label>Foreground</label>
+        <input type="color" data-key="foreground">
+        <div class="hint">Color of the QR code's dark modules.</div>
+      </div>
+      <div class="field field--sm">
+        <label>Background</label>
+        <input type="color" data-key="background">
+        <div class="hint">Color behind the QR code. Keep strong contrast against the foreground or scanners may fail.</div>
+      </div>
+    </div>
+    <details class="advanced-json">
+      <summary>Advanced: edit raw JSON</summary>
+      <textarea name="value" class="code" spellcheck="false" data-json-source>{{index $.Data.Values "qr"}}</textarea>
+    </details>
+    <div class="actions"><button class="btn btn--primary" type="submit">Save</button></div>
+  </form>
+</div>
+
+<!-- ================================ Theme ================================ -->
+<div class="card" id="section-theme">
+  <div class="card__title-row"><h2>Theme</h2></div>
+  <p class="section-desc">
+    Which theme renders the public subscription page. Colors, fonts, logo, and page templates for
+    each theme are edited on the <a href="/admin/themes">Themes</a> page — this only picks which one is active.
+  </p>
+
+  <form method="post" action="/admin/settings/theme" class="settings-form" data-section="theme">
+    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+    <div class="form-grid">
+      <div class="field field--md">
+        <label>Active theme</label>
+        {{if .Data.ThemeSlugs}}
+        <select data-key="active">
+          {{range .Data.ThemeSlugs}}<option value="{{.}}">{{.}}</option>{{end}}
+        </select>
+        {{else}}
+        <input type="text" data-key="active" placeholder="default">
+        <div class="hint empty-list-hint">No themes found yet — import the bundled defaults, or create one under Themes.</div>
+        {{end}}
+      </div>
+    </div>
+    <details class="advanced-json">
+      <summary>Advanced: edit raw JSON</summary>
+      <textarea name="value" class="code" spellcheck="false" data-json-source>{{index $.Data.Values "theme"}}</textarea>
+    </details>
+    <div class="actions"><button class="btn btn--primary" type="submit">Save</button></div>
+  </form>
+</div>
+
+<!-- =============================== Support =============================== -->
+<div class="card" id="section-support">
+  <div class="card__title-row"><h2>Support</h2></div>
+  <p class="section-desc">Contact links shown on the subscription page. Leave any field blank to hide it.</p>
+
+  <form method="post" action="/admin/settings/support" class="settings-form" data-section="support">
+    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+    <div class="form-grid">
+      <div class="field field--md">
+        <label>Telegram</label>
+        <input type="text" data-key="telegram" placeholder="https://t.me/yourchannel">
+      </div>
+      <div class="field field--md">
+        <label>Discord</label>
+        <input type="text" data-key="discord" placeholder="https://discord.gg/invite">
+      </div>
+      <div class="field field--md">
+        <label>Email</label>
+        <input type="email" data-key="email" placeholder="support@example.com">
+      </div>
+      <div class="field field--md">
+        <label>Website</label>
+        <input type="text" data-key="website" placeholder="https://example.com">
+      </div>
+      <div class="field field--full">
+        <label>Custom note</label>
+        <textarea data-key="custom" rows="3" placeholder="Anything else — business hours, a ticket URL, plain instructions..."></textarea>
+      </div>
+    </div>
+    <details class="advanced-json">
+      <summary>Advanced: edit raw JSON</summary>
+      <textarea name="value" class="code" spellcheck="false" data-json-source>{{index $.Data.Values "support"}}</textarea>
+    </details>
+    <div class="actions"><button class="btn btn--primary" type="submit">Save</button></div>
+  </form>
+</div>
+
+<!-- =============================== Security =============================== -->
+<div class="card" id="section-security">
+  <div class="card__title-row"><h2>Security</h2></div>
+  <p class="section-desc">Rate limiting, the response Content-Security-Policy, and reserved host validation.</p>
+
+  <form method="post" action="/admin/settings/security" class="settings-form" data-section="security">
+    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+    <div class="form-grid">
+      <div class="field field--sm">
+        <label>Requests / minute</label>
+        <input type="number" step="1" min="1" data-key="rate_limit.requests_per_minute">
+        <div class="hint">
+          Steady-state requests allowed per client IP per minute before responses start getting
+          rate-limited (429). Default 60.
+        </div>
+      </div>
+      <div class="field field--sm">
+        <label>Burst</label>
+        <input type="number" step="1" min="0" data-key="rate_limit.burst">
+        <div class="hint">Extra requests allowed in a short burst above the steady rate. Default 20.</div>
+      </div>
+    </div>
+    <div class="hint danger-text" style="margin-top: -6px; margin-bottom: 14px;">
+      Note: rate limiting currently keys on the request's raw remote address. Behind install.sh's
+      nginx reverse-proxy setups, that address is always nginx's own loopback IP — in practice all
+      visitors currently share one bucket rather than being limited individually.
+    </div>
+
+    <div class="form-grid">
+      <div class="field field--full">
+        <label>Content-Security-Policy</label>
+        <textarea data-key="csp" class="mono" rows="3"></textarea>
+        <div class="hint danger-text">
+          Sent on every admin response. The default already allows the small inline script/style the
+          admin UI's own theme toggle needs — an incorrect value here can lock you out of parts of
+          this very admin UI. Only edit if you know what these directives do.
+        </div>
+      </div>
+      <div class="field field--full">
+        <label>Trusted hosts</label>
+        <div class="dynamic-list" data-list="trusted_hosts">
+          <div class="dynamic-list__rows"></div>
+          <button type="button" class="btn btn--secondary btn--sm dynamic-list__add">+ Add host</button>
+        </div>
+        <div class="hint">Reserved for future Host-header validation; not currently enforced by any request handler in this version. Safe to leave empty.</div>
+      </div>
+    </div>
+    <details class="advanced-json">
+      <summary>Advanced: edit raw JSON</summary>
+      <textarea name="value" class="code" spellcheck="false" data-json-source>{{index $.Data.Values "security"}}</textarea>
+    </details>
+    <div class="actions"><button class="btn btn--primary" type="submit">Save</button></div>
+  </form>
+</div>
+
+<script>
+(function () {
+  function getPath(obj, path) {
+    return path.split(".").reduce(function (o, k) { return (o == null ? undefined : o[k]); }, obj);
+  }
+  function setPath(obj, path, value) {
+    var parts = path.split(".");
+    var cur = obj;
+    for (var i = 0; i < parts.length - 1; i++) {
+      var k = parts[i];
+      if (typeof cur[k] !== "object" || cur[k] === null) cur[k] = {};
+      cur = cur[k];
+    }
+    cur[parts[parts.length - 1]] = value;
+  }
+  function fieldValue(el) {
+    if (el.type === "checkbox") return el.checked;
+    if (el.type === "number") {
+      var n = el.value === "" ? 0 : Number(el.value);
+      var scale = el.dataset.scale ? Number(el.dataset.scale) : 1;
+      return Math.round(n * scale);
+    }
+    return el.value;
+  }
+  function setFieldValue(el, value) {
+    if (value === undefined) return;
+    if (el.type === "checkbox") { el.checked = !!value; return; }
+    if (el.type === "number") {
+      var scale = el.dataset.scale ? Number(el.dataset.scale) : 1;
+      el.value = (value === null || value === "") ? "" : (Number(value) / scale);
+      return;
+    }
+    el.value = (value === null || value === undefined) ? "" : value;
+  }
+
+  function addListRow(container, value) {
+    var rows = container.querySelector(".dynamic-list__rows");
+    var row = document.createElement("div");
+    row.className = "dynamic-list__row";
+
+    var input = document.createElement("input");
+    input.type = "text";
+    input.value = value || "";
+    input.addEventListener("input", function () { syncToJSON(container.closest("form")); });
+
+    var removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "btn btn--secondary btn--sm dynamic-list__remove";
+    removeBtn.textContent = "✕";
+    removeBtn.addEventListener("click", function () {
+      row.remove();
+      syncToJSON(container.closest("form"));
+    });
+
+    row.appendChild(input);
+    row.appendChild(removeBtn);
+    rows.appendChild(row);
+    return input;
+  }
+  function populateList(container, arr) {
+    var rows = container.querySelector(".dynamic-list__rows");
+    rows.innerHTML = "";
+    (arr || []).forEach(function (v) { addListRow(container, v); });
+  }
+  function listValues(container) {
+    var inputs = container.querySelectorAll(".dynamic-list__rows input");
+    return Array.prototype.map.call(inputs, function (i) { return i.value; })
+      .filter(function (v) { return v.trim() !== ""; });
+  }
+
+  function populateForm(form, obj) {
+    form.querySelectorAll("[data-key]").forEach(function (el) {
+      setFieldValue(el, getPath(obj, el.dataset.key));
+    });
+    form.querySelectorAll("[data-list]").forEach(function (container) {
+      populateList(container, getPath(obj, container.dataset.list));
+    });
+  }
+  function syncToJSON(form) {
+    if (!form) return;
+    var obj = {};
+    form.querySelectorAll("[data-key]").forEach(function (el) {
+      setPath(obj, el.dataset.key, fieldValue(el));
+    });
+    form.querySelectorAll("[data-list]").forEach(function (container) {
+      setPath(obj, container.dataset.list, listValues(container));
+    });
+    var textarea = form.querySelector("[data-json-source]");
+    textarea.value = JSON.stringify(obj, null, 2);
+  }
+
+  function init() {
+    document.querySelectorAll(".settings-form").forEach(function (form) {
+      var textarea = form.querySelector("[data-json-source]");
+      var initial = {};
+      try { initial = JSON.parse(textarea.value || "{}"); } catch (e) {}
+      populateForm(form, initial);
+
+      form.querySelectorAll("[data-key]").forEach(function (el) {
+        el.addEventListener("input", function () { syncToJSON(form); });
+        el.addEventListener("change", function () { syncToJSON(form); });
+      });
+
+      var addBtn = form.querySelector(".dynamic-list__add");
+      if (addBtn) {
+        addBtn.addEventListener("click", function () {
+          addListRow(addBtn.closest("[data-list]"), "");
+          syncToJSON(form);
+        });
+      }
+
+      textarea.addEventListener("input", function () {
+        try {
+          var obj = JSON.parse(textarea.value);
+          textarea.classList.remove("is-invalid");
+          populateForm(form, obj);
+        } catch (e) {
+          textarea.classList.add("is-invalid");
+        }
+      });
+
+      form.addEventListener("submit", function () {
+        if (document.activeElement !== textarea) syncToJSON(form);
+      });
+    });
+
+    document.querySelectorAll("[data-toggle-reveal]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var input = btn.previousElementSibling;
+        if (input.type === "password") { input.type = "text"; btn.textContent = "Hide"; }
+        else { input.type = "password"; btn.textContent = "Show"; }
+      });
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();
+</script>
 {{end}}

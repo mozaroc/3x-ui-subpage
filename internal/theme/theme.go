@@ -92,32 +92,36 @@ func (e *Engine) ServeStatic(w http.ResponseWriter, r *http.Request, path string
 		return false, nil
 	}
 
-	if ct := mime.TypeByExtension(filepath.Ext(path)); ct != "" {
-		w.Header().Set("Content-Type", ct)
+	ct := mime.TypeByExtension(filepath.Ext(path))
+	if ct == "" {
+		ct = "application/octet-stream"
 	}
+	w.Header().Set("Content-Type", ct)
 	_, err := w.Write(content)
 	return true, err
 }
 
 func (e *Engine) reloadIfNeeded() error {
+	// Also tracks the file count: deleting a theme_files row can only ever
+	// leave the remaining max updated_at the same or lower, never higher, so
+	// a deletion that doesn't remove the single most-recently-touched file
+	// would otherwise go undetected by the MAX(updated_at) check alone. Both
+	// aggregates are read by one query (not two separate round trips) so a
+	// concurrent write between them can't produce a (newest, fileCount) pair
+	// that never existed at any single instant.
 	var newest sql.NullInt64
-	err := e.db.QueryRow(`
-		SELECT MAX(x) FROM (
-			SELECT updated_at AS x FROM themes WHERE slug = ?
-			UNION ALL
-			SELECT updated_at FROM theme_files WHERE theme_slug = ?
-		)`, e.slug, e.slug).Scan(&newest)
-	if err != nil {
-		return fmt.Errorf("theme: query max updated_at: %w", err)
-	}
-
-	// Also track the file count: deleting a theme_files row can only ever
-	// leave the remaining max updated_at the same or lower, never higher,
-	// so a deletion that doesn't remove the single most-recently-touched
-	// file would otherwise go undetected by the MAX(updated_at) check alone.
 	var fileCount int
-	if err := e.db.QueryRow(`SELECT COUNT(*) FROM theme_files WHERE theme_slug = ?`, e.slug).Scan(&fileCount); err != nil {
-		return fmt.Errorf("theme: count theme_files: %w", err)
+	err := e.db.QueryRow(`
+		SELECT
+			(SELECT MAX(x) FROM (
+				SELECT updated_at AS x FROM themes WHERE slug = ?
+				UNION ALL
+				SELECT updated_at FROM theme_files WHERE theme_slug = ?
+			)),
+			(SELECT COUNT(*) FROM theme_files WHERE theme_slug = ?)`,
+		e.slug, e.slug, e.slug).Scan(&newest, &fileCount)
+	if err != nil {
+		return fmt.Errorf("theme: query reload state: %w", err)
 	}
 
 	e.mu.Lock()
@@ -194,8 +198,12 @@ func (e *Engine) loadFiles() (*template.Template, map[string][]byte, error) {
 			continue
 		}
 
-		staticPath := strings.TrimPrefix(path, "static/")
-		static[staticPath] = content
+		if !strings.HasPrefix(path, "static/") {
+			// Not a template and not under static/ — an admin-added file with
+			// some other purpose (e.g. a data/notes file). Never served.
+			continue
+		}
+		static[strings.TrimPrefix(path, "static/")] = content
 	}
 	if err := rows.Err(); err != nil {
 		return nil, nil, fmt.Errorf("iterate theme_files: %w", err)

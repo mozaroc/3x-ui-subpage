@@ -43,9 +43,12 @@ func WithLogger(l *slog.Logger) Option {
 func WithInsecureSkipVerify(skip bool) Option {
 	return func(c *Client) {
 		if skip {
-			c.httpClient.Transport = &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // operator opt-in
-			}
+			// Clone the default transport rather than replacing it wholesale,
+			// so proxy-from-environment and connection-pooling defaults still
+			// apply — only the TLS verification behavior changes.
+			t := http.DefaultTransport.(*http.Transport).Clone()
+			t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // operator opt-in
+			c.httpClient.Transport = t
 		}
 	}
 }
@@ -96,6 +99,10 @@ func (c *Client) doJSONBody(ctx context.Context, method, path string, body, out 
 	var lastErr error
 
 	for attempt := 1; attempt <= c.maxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("xui: %s: %w", path, err)
+		}
+
 		var bodyReader io.Reader
 		if payload != nil {
 			bodyReader = strings.NewReader(string(payload))
@@ -223,31 +230,46 @@ func (c *Client) AttachClient(ctx context.Context, email string, inboundIDs []in
 
 // DetachClient detaches a client (by email) from the given inbounds without
 // deleting the client outright — though the panel deletes the client
-// automatically once it has no inbounds left attached.
+// automatically once it has no inbounds left attached. Idempotent: if the
+// client is already gone (e.g. a retry after a lost response to a detach
+// that actually succeeded), that's treated as success rather than an error,
+// since the desired end state — client not attached — already holds.
 func (c *Client) DetachClient(ctx context.Context, email string, inboundIDs []int) error {
 	path := "/panel/api/clients/" + url.PathEscape(email) + "/detach"
-	return c.doJSONBody(ctx, http.MethodPost, path, attachDetachRequest{InboundIDs: inboundIDs}, nil)
+	return ignoreNotFound(c.doJSONBody(ctx, http.MethodPost, path, attachDetachRequest{InboundIDs: inboundIDs}, nil))
 }
 
 // DeleteClient removes a client (by email) from every inbound it's attached
-// to and drops its traffic record.
+// to and drops its traffic record. Idempotent, see DetachClient.
 func (c *Client) DeleteClient(ctx context.Context, email string) error {
 	path := "/panel/api/clients/del/" + url.PathEscape(email) + "?keepTraffic=0"
-	return c.doJSONBody(ctx, http.MethodPost, path, nil, nil)
+	return ignoreNotFound(c.doJSONBody(ctx, http.MethodPost, path, nil, nil))
 }
 
 // ResetClientTraffic zeroes a client's accumulated up/down counters (by
 // email) across every inbound it's attached to, and re-enables it.
+// Idempotent, see DetachClient.
 func (c *Client) ResetClientTraffic(ctx context.Context, email string) error {
 	path := "/panel/api/clients/resetTraffic/" + url.PathEscape(email)
-	return c.doJSONBody(ctx, http.MethodPost, path, nil, nil)
+	return ignoreNotFound(c.doJSONBody(ctx, http.MethodPost, path, nil, nil))
 }
 
 // notFoundMsgFragment is the distinguishing substring of the panel's "record
-// not found" response body for GetClient — the panel signals this as
-// success:false with HTTP 200, not a distinct status code, so there is no
-// cleaner way to detect it than matching the message text.
+// not found" response body — the panel signals this as success:false with
+// HTTP 200, not a distinct status code, so there is no cleaner way to detect
+// it than matching the message text.
 const notFoundMsgFragment = "record not found"
+
+// ignoreNotFound treats the panel's "record not found" response as success
+// for operations whose goal is the client's absence/reset — a retry that
+// lands after the change already took effect (the prior response was lost,
+// not the request) shouldn't be reported as a failed sync.
+func ignoreNotFound(err error) error {
+	if err != nil && strings.Contains(err.Error(), notFoundMsgFragment) {
+		return nil
+	}
+	return err
+}
 
 // GetClient fetches one client by email. Returns found=false (no error) if
 // the panel reports the client doesn't exist.

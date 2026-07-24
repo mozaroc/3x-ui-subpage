@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 
@@ -12,6 +13,19 @@ import (
 
 	"github.com/irazin/3x-ui-subpage/internal/domain"
 )
+
+// readShippedTemplate loads this project's own default xray_link template
+// for protocol (web/templates/xray/<protocol>.tmpl) — used to exercise the
+// actual content administrators get out of the box, not just this test's
+// synthetic fixtures above.
+func readShippedTemplate(t *testing.T, protocol string) string {
+	t.Helper()
+	content, err := os.ReadFile("../../../web/templates/xray/" + protocol + ".tmpl")
+	if err != nil {
+		t.Fatalf("read shipped %s template: %v", protocol, err)
+	}
+	return string(content)
+}
 
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
@@ -177,6 +191,89 @@ func TestBuildLink_VMess(t *testing.T) {
 	}
 	if obj["net"] != "ws" || obj["path"] != "/ws" {
 		t.Errorf("unexpected transport fields: %v", obj)
+	}
+}
+
+func TestBuildLink_ShippedVMessTemplate_EscapesQuoteInRemark(t *testing.T) {
+	db := openTestDB(t)
+	insert(t, db, "default", "vmess", readShippedTemplate(t, "vmess"))
+	g := New(db)
+
+	mc := domain.MatchedClient{
+		Remark:   `evil " remark`,
+		Protocol: domain.ProtocolVMess,
+		Server:   "vpn.example.com",
+		Port:     8443,
+		Client:   domain.ClientAccount{ID: "22222222-2222-2222-2222-222222222222", Email: "bob"},
+	}
+
+	link, err := g.BuildLink(mc, "default")
+	if err != nil {
+		t.Fatalf("BuildLink: %v", err)
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(link, "vmess://"))
+	if err != nil {
+		t.Fatalf("decode base64: %v", err)
+	}
+	if !json.Valid(decoded) {
+		t.Fatalf("decoded vmess payload is not valid JSON: %s", decoded)
+	}
+
+	var obj map[string]any
+	if err := json.Unmarshal(decoded, &obj); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if want := "evil \" remark + bob"; obj["ps"] != want {
+		t.Errorf("expected ps %q with quote intact, got %v", want, obj["ps"])
+	}
+}
+
+func TestBuildLink_ShippedVMessTemplate_MalformedOutputIsRejected(t *testing.T) {
+	// A broken admin-edited template must surface an error, not silently
+	// wrap invalid JSON into a base64 "share link" no client can use.
+	db := openTestDB(t)
+	insert(t, db, "default", "vmess", `{"ps": not valid json}`)
+	g := New(db)
+
+	mc := domain.MatchedClient{
+		Protocol: domain.ProtocolVMess,
+		Server:   "vpn.example.com",
+		Port:     8443,
+		Client:   domain.ClientAccount{ID: "uuid-1", Email: "bob"},
+	}
+
+	if _, err := g.BuildLink(mc, "default"); err == nil {
+		t.Fatal("expected an error for a vmess template that renders invalid JSON")
+	}
+}
+
+func TestBuildLink_ShippedVLESSTemplate_ShortIDIsURLEscaped(t *testing.T) {
+	db := openTestDB(t)
+	insert(t, db, "default", "vless", readShippedTemplate(t, "vless"))
+	g := New(db)
+
+	mc := domain.MatchedClient{
+		Protocol: domain.ProtocolVLESS,
+		Server:   "vpn.example.com",
+		Port:     443,
+		Client:   domain.ClientAccount{ID: "11111111-1111-1111-1111-111111111111", Email: "alice"},
+		Stream: domain.StreamSettings{
+			Security: domain.SecurityReality,
+			TLS:      domain.TLSSettings{ShortID: "ab&cd", SNI: "example.com", Fingerprint: "chrome", PublicKey: "pk"},
+		},
+	}
+
+	link, err := g.BuildLink(mc, "default")
+	if err != nil {
+		t.Fatalf("BuildLink: %v", err)
+	}
+	u, err := url.Parse(link)
+	if err != nil {
+		t.Fatalf("parse link as URL: %v", err)
+	}
+	if got := u.Query().Get("sid"); got != "ab&cd" {
+		t.Errorf("expected sid to round-trip as a single query param value %q, got %q", "ab&cd", got)
 	}
 }
 

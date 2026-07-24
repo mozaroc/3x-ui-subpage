@@ -245,6 +245,11 @@ func SaveSetting(db *sql.DB, key string, value []byte) error {
 		if err := json.Unmarshal(value, target); err != nil {
 			return fmt.Errorf("config: value for settings[%s] doesn't match its schema: %w", key, err)
 		}
+		if validate, ok := sectionValidators(&cfg)[key]; ok {
+			if err := validate(); err != nil {
+				return fmt.Errorf("config: value for settings[%s] is invalid: %w", key, err)
+			}
+		}
 	}
 
 	_, err := db.Exec(`
@@ -292,25 +297,59 @@ func ListSettings(db *sql.DB) (map[string]string, error) {
 // Validate checks that required fields are present and internally
 // consistent.
 func (c Config) Validate() error {
-	if c.XUI.BaseURL == "" {
-		return fmt.Errorf("xui.base_url is required")
+	if err := c.XUI.validate(); err != nil {
+		return err
 	}
-	if c.XUI.APIKey == "" {
-		return fmt.Errorf("xui.api_key is required")
+	if err := c.Subscription.validate(); err != nil {
+		return err
 	}
-	if c.Subscription.PublicURL == "" {
-		return fmt.Errorf("subscription.public_url is required")
-	}
-	if c.Subscription.ServerHost == "" {
-		return fmt.Errorf("subscription.server_host is required")
-	}
-	if c.XUI.Retry.MaxAttempts < 1 {
-		return fmt.Errorf("xui.retry.max_attempts must be >= 1")
-	}
-	switch c.Logging.Format {
-	case "json", "console":
-	default:
-		return fmt.Errorf("logging.format must be 'json' or 'console', got %q", c.Logging.Format)
+	if err := c.Logging.validate(); err != nil {
+		return err
 	}
 	return nil
+}
+
+func (c XUIConfig) validate() error {
+	if c.BaseURL == "" {
+		return fmt.Errorf("xui.base_url is required")
+	}
+	if c.APIKey == "" {
+		return fmt.Errorf("xui.api_key is required")
+	}
+	if c.Retry.MaxAttempts < 1 {
+		return fmt.Errorf("xui.retry.max_attempts must be >= 1")
+	}
+	return nil
+}
+
+func (c SubscriptionConfig) validate() error {
+	if c.PublicURL == "" {
+		return fmt.Errorf("subscription.public_url is required")
+	}
+	if c.ServerHost == "" {
+		return fmt.Errorf("subscription.server_host is required")
+	}
+	return nil
+}
+
+func (c LoggingConfig) validate() error {
+	switch c.Format {
+	case "json", "console":
+		return nil
+	default:
+		return fmt.Errorf("logging.format must be 'json' or 'console', got %q", c.Format)
+	}
+}
+
+// sectionValidators maps each settings key that has semantic (not just
+// schema) constraints to a function validating that section alone — used by
+// SaveSetting so saving one section is checked against its own rules without
+// requiring the other sections (which SaveSetting doesn't have loaded) to
+// already be valid.
+func sectionValidators(cfg *Config) map[string]func() error {
+	return map[string]func() error{
+		"xui":          cfg.XUI.validate,
+		"subscription": cfg.Subscription.validate,
+		"logging":      cfg.Logging.validate,
+	}
 }

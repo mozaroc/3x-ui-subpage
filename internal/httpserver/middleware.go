@@ -7,6 +7,17 @@ import (
 	"strings"
 )
 
+// isRequestSecure reports whether r arrived over HTTPS, either directly
+// (r.TLS set) or via a reverse proxy that terminated TLS and forwarded the
+// original scheme (X-Forwarded-Proto: https) — this service's documented
+// deployment (install.sh) always has nginx terminate TLS and proxy to this
+// process over plain loopback HTTP, so r.TLS alone is never set there. The
+// server only ever listens on loopback (nginx is the sole caller), so the
+// header can't be spoofed by an end-client.
+func isRequestSecure(r *http.Request) bool {
+	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+}
+
 // secureHeaders sets the standard defensive response headers on every
 // request. CSRF protection is intentionally omitted: phase 1 exposes no
 // state-changing or authenticated public endpoint.
@@ -20,7 +31,7 @@ func secureHeaders(csp string) func(http.Handler) http.Handler {
 			if csp != "" {
 				h.Set("Content-Security-Policy", csp)
 			}
-			if r.TLS != nil {
+			if isRequestSecure(r) {
 				h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
 			}
 			next.ServeHTTP(w, r)

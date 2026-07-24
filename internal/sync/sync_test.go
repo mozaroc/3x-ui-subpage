@@ -230,3 +230,53 @@ func TestPrune_RemovesOldSuccessOnly(t *testing.T) {
 		t.Fatal("expected failed job to survive prune regardless of age")
 	}
 }
+
+func TestReapStale_RequeuesOldInProgressOnly(t *testing.T) {
+	db := openTestDB(t)
+	s := NewStore(db)
+
+	idStuck, _ := s.Enqueue(1, 10, OpAssign, Payload{})
+	idFresh, _ := s.Enqueue(1, 11, OpAssign, Payload{})
+
+	if _, err := s.ClaimBatch(10); err != nil {
+		t.Fatalf("ClaimBatch: %v", err)
+	}
+
+	// Simulate a crash mid-dispatch: idStuck's in_progress row is old,
+	// idFresh's was just claimed and is still recent.
+	if _, err := db.Exec(`UPDATE sync_jobs SET updated_at = 1 WHERE id = ?`, idStuck); err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+
+	n, err := s.ReapStale(1000)
+	if err != nil {
+		t.Fatalf("ReapStale: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("expected 1 job reclaimed, got %d", n)
+	}
+
+	jobs, err := s.ListForUser(1, 10)
+	if err != nil {
+		t.Fatalf("ListForUser: %v", err)
+	}
+	byID := map[int64]Job{}
+	for _, j := range jobs {
+		byID[j.ID] = j
+	}
+	if byID[idStuck].Status != StatusPending {
+		t.Errorf("expected stuck job back to pending, got %q", byID[idStuck].Status)
+	}
+	if byID[idFresh].Status != StatusInProgress {
+		t.Errorf("expected fresh in_progress job untouched, got %q", byID[idFresh].Status)
+	}
+
+	// The reclaimed job must be immediately claimable again.
+	claimed, err := s.ClaimBatch(10)
+	if err != nil {
+		t.Fatalf("ClaimBatch after reap: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].ID != idStuck {
+		t.Fatalf("expected reclaimed job to be claimable, got %+v", claimed)
+	}
+}

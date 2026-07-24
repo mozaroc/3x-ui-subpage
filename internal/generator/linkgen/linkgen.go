@@ -8,6 +8,7 @@ package linkgen
 import (
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"text/template"
@@ -57,6 +58,13 @@ func (g *Generator) BuildLink(mc domain.MatchedClient, profile string) (string, 
 	}
 
 	if mc.Protocol == domain.ProtocolVMess {
+		// Unlike the other protocols' URI-query templates, vmess's template
+		// body IS the payload (a JSON object, base64-wrapped) — a malformed
+		// admin template or an unescaped field would otherwise silently
+		// produce an unusable link with no error surfaced anywhere.
+		if !json.Valid([]byte(sb.String())) {
+			return "", fmt.Errorf("linkgen: render vmess: template output is not valid JSON")
+		}
 		encoded := base64.StdEncoding.EncodeToString([]byte(sb.String()))
 		return "vmess://" + encoded, nil
 	}

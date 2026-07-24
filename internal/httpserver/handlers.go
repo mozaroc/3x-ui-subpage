@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/irazin/3x-ui-subpage/internal/connlink"
 	"github.com/irazin/3x-ui-subpage/internal/domain"
 	"github.com/irazin/3x-ui-subpage/internal/qrcode"
 	"github.com/irazin/3x-ui-subpage/internal/resolver"
@@ -35,16 +37,27 @@ func (s *Server) resolveOrFail(w http.ResponseWriter, r *http.Request) (domain.S
 	return domain.Subscription{}, false
 }
 
-// resolveProfile looks up the subscriber's assigned template profile,
-// writing 500 and returning ok=false on failure.
-func (s *Server) resolveProfile(w http.ResponseWriter, subID string) (string, bool) {
-	profile, err := s.deps.Assignments.Resolve(subID)
+// resolveProfile looks up the subscriber's assigned template profile for
+// format, writing 500 and returning ok=false on failure.
+func (s *Server) resolveProfile(w http.ResponseWriter, subID, format string) (string, bool) {
+	profile, err := s.deps.Assignments.Resolve(subID, format)
 	if err != nil {
-		s.deps.Logger.Error("resolve profile assignment failed", "sub_id", subID, "err", err)
+		s.deps.Logger.Error("resolve profile assignment failed", "sub_id", subID, "format", format, "err", err)
 		http.Error(w, "failed to resolve template assignment", http.StatusInternalServerError)
 		return "", false
 	}
 	return profile, true
+}
+
+// findMatchedClient returns the matched client for inboundID within sub, if
+// any.
+func findMatchedClient(sub domain.Subscription, inboundID int) (domain.MatchedClient, bool) {
+	for _, mc := range sub.Clients {
+		if mc.InboundID == inboundID {
+			return mc, true
+		}
+	}
+	return domain.MatchedClient{}, false
 }
 
 // setSubscriptionUserinfo sets the de-facto standard header many clients
@@ -71,11 +84,11 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	case formatHTML:
 		s.renderHTML(w, sub)
 	case formatClash:
-		s.writeYAML(w, sub, s.deps.Clash, "clash.yaml")
+		s.writeYAML(w, sub, s.deps.Clash, "clash", "clash.yaml")
 	case formatMihomo:
-		s.writeYAML(w, sub, s.deps.Mihomo, "mihomo.yaml")
+		s.writeYAML(w, sub, s.deps.Mihomo, "mihomo", "mihomo.yaml")
 	case formatIncy:
-		s.writeRaw(w, sub, s.deps.Incy, "incy.json")
+		s.writeRaw(w, sub, s.deps.Incy, "incy", "incy.json")
 	default:
 		s.writeXrayLinks(w, sub)
 	}
@@ -95,7 +108,7 @@ func (s *Server) handleXrayJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profile, ok := s.resolveProfile(w, sub.SubID)
+	profile, ok := s.resolveProfile(w, sub.SubID, "xray_json")
 	if !ok {
 		return
 	}
@@ -118,7 +131,7 @@ func (s *Server) handleClash(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.writeYAML(w, sub, s.deps.Clash, "clash.yaml")
+	s.writeYAML(w, sub, s.deps.Clash, "clash", "clash.yaml")
 }
 
 func (s *Server) handleMihomo(w http.ResponseWriter, r *http.Request) {
@@ -126,7 +139,7 @@ func (s *Server) handleMihomo(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.writeYAML(w, sub, s.deps.Mihomo, "mihomo.yaml")
+	s.writeYAML(w, sub, s.deps.Mihomo, "mihomo", "mihomo.yaml")
 }
 
 func (s *Server) handleHapp(w http.ResponseWriter, r *http.Request) {
@@ -134,7 +147,7 @@ func (s *Server) handleHapp(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.writeRaw(w, sub, s.deps.Happ, "happ.json")
+	s.writeRaw(w, sub, s.deps.Happ, "happ", "happ.json")
 }
 
 func (s *Server) handleIncy(w http.ResponseWriter, r *http.Request) {
@@ -142,11 +155,11 @@ func (s *Server) handleIncy(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.writeRaw(w, sub, s.deps.Incy, "incy.json")
+	s.writeRaw(w, sub, s.deps.Incy, "incy", "incy.json")
 }
 
 func (s *Server) writeXrayLinks(w http.ResponseWriter, sub domain.Subscription) {
-	profile, ok := s.resolveProfile(w, sub.SubID)
+	profile, ok := s.resolveProfile(w, sub.SubID, "xray_link")
 	if !ok {
 		return
 	}
@@ -162,8 +175,8 @@ func (s *Server) writeXrayLinks(w http.ResponseWriter, sub domain.Subscription) 
 	_, _ = w.Write([]byte(body))
 }
 
-func (s *Server) writeYAML(w http.ResponseWriter, sub domain.Subscription, gen YAMLGenerator, filename string) {
-	profile, ok := s.resolveProfile(w, sub.SubID)
+func (s *Server) writeYAML(w http.ResponseWriter, sub domain.Subscription, gen YAMLGenerator, format, filename string) {
+	profile, ok := s.resolveProfile(w, sub.SubID, format)
 	if !ok {
 		return
 	}
@@ -180,8 +193,8 @@ func (s *Server) writeYAML(w http.ResponseWriter, sub domain.Subscription, gen Y
 	_, _ = w.Write([]byte(out))
 }
 
-func (s *Server) writeRaw(w http.ResponseWriter, sub domain.Subscription, gen RawGenerator, filename string) {
-	profile, ok := s.resolveProfile(w, sub.SubID)
+func (s *Server) writeRaw(w http.ResponseWriter, sub domain.Subscription, gen RawGenerator, format, filename string) {
+	profile, ok := s.resolveProfile(w, sub.SubID, format)
 	if !ok {
 		return
 	}
@@ -214,13 +227,160 @@ func (s *Server) renderHTML(w http.ResponseWriter, sub domain.Subscription) {
 		Custom:   s.deps.Support.Custom,
 	}
 
-	view := buildSubscriptionView(sub, catalogApps, support, s.deps.PublicURL)
+	// Direct connection links are a display enhancement -- a failure to
+	// resolve the assigned profile shouldn't take down the whole page, so
+	// it degrades to an empty list rather than erroring out.
+	var connections []connlink.View
+	if profile, err := s.deps.Assignments.Resolve(sub.SubID, "xray_link"); err != nil {
+		s.deps.Logger.Warn("resolve xray profile for connection links failed", "sub_id", sub.SubID, "err", err)
+	} else {
+		connections = connlink.Build(sub.SubID, sub.Clients, profile, s.deps.LinkGen, func(mc domain.MatchedClient, err error) {
+			s.deps.Logger.Warn("build connection link failed", "sub_id", sub.SubID, "inbound_id", mc.InboundID, "err", err)
+		})
+	}
+
+	view := buildSubscriptionView(sub, catalogApps, support, s.deps.PublicURL, connections)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.deps.Theme.Render(w, view); err != nil {
 		s.deps.Logger.Error("render theme failed", "sub_id", sub.SubID, "err", err)
 		http.Error(w, "failed to render page", http.StatusInternalServerError)
 	}
+}
+
+// handleLink writes the raw share-link URI (e.g. "vless://...") for a
+// single inbound.
+func (s *Server) handleLink(w http.ResponseWriter, r *http.Request) {
+	sub, ok := s.resolveOrFail(w, r)
+	if !ok {
+		return
+	}
+	mc, ok := s.findLinkTarget(w, r, sub)
+	if !ok {
+		return
+	}
+
+	profile, ok := s.resolveProfile(w, sub.SubID, "xray_link")
+	if !ok {
+		return
+	}
+
+	link, err := s.deps.LinkGen.BuildLink(mc, profile)
+	if err != nil {
+		s.deps.Logger.Error("render connection link failed", "sub_id", sub.SubID, "inbound_id", mc.InboundID, "err", err)
+		http.Error(w, "failed to render connection link", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte(link))
+}
+
+func (s *Server) handleLinkQRPNG(w http.ResponseWriter, r *http.Request) {
+	sub, ok := s.resolveOrFail(w, r)
+	if !ok {
+		return
+	}
+	mc, ok := s.findLinkTarget(w, r, sub)
+	if !ok {
+		return
+	}
+
+	profile, ok := s.resolveProfile(w, sub.SubID, "xray_link")
+	if !ok {
+		return
+	}
+
+	link, err := s.deps.LinkGen.BuildLink(mc, profile)
+	if err != nil {
+		s.deps.Logger.Error("render connection link failed", "sub_id", sub.SubID, "inbound_id", mc.InboundID, "err", err)
+		http.Error(w, "failed to render connection link", http.StatusInternalServerError)
+		return
+	}
+
+	png, err := qrcode.GeneratePNG(link, s.qrOptions())
+	if err != nil {
+		s.deps.Logger.Error("generate connection qr png failed", "sub_id", sub.SubID, "inbound_id", mc.InboundID, "err", err)
+		http.Error(w, "failed to generate qr code", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	_, _ = w.Write(png)
+}
+
+func (s *Server) handleLinkQRSVG(w http.ResponseWriter, r *http.Request) {
+	sub, ok := s.resolveOrFail(w, r)
+	if !ok {
+		return
+	}
+	mc, ok := s.findLinkTarget(w, r, sub)
+	if !ok {
+		return
+	}
+
+	profile, ok := s.resolveProfile(w, sub.SubID, "xray_link")
+	if !ok {
+		return
+	}
+
+	link, err := s.deps.LinkGen.BuildLink(mc, profile)
+	if err != nil {
+		s.deps.Logger.Error("render connection link failed", "sub_id", sub.SubID, "inbound_id", mc.InboundID, "err", err)
+		http.Error(w, "failed to render connection link", http.StatusInternalServerError)
+		return
+	}
+
+	svg, err := qrcode.GenerateSVG(link, s.qrOptions())
+	if err != nil {
+		s.deps.Logger.Error("generate connection qr svg failed", "sub_id", sub.SubID, "inbound_id", mc.InboundID, "err", err)
+		http.Error(w, "failed to generate qr code", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "image/svg+xml")
+	_, _ = w.Write([]byte(svg))
+}
+
+// handleLinkConfig writes a single-client full xray-core JSON config for
+// one inbound, downloadable independently of the whole-subscription config.
+func (s *Server) handleLinkConfig(w http.ResponseWriter, r *http.Request) {
+	sub, ok := s.resolveOrFail(w, r)
+	if !ok {
+		return
+	}
+	mc, ok := s.findLinkTarget(w, r, sub)
+	if !ok {
+		return
+	}
+
+	profile, ok := s.resolveProfile(w, sub.SubID, "xray_json")
+	if !ok {
+		return
+	}
+
+	out, err := s.deps.XrayJSON.Build([]domain.MatchedClient{mc}, profile)
+	if err != nil {
+		s.deps.Logger.Error("render single-inbound xray json config failed", "sub_id", sub.SubID, "inbound_id", mc.InboundID, "err", err)
+		http.Error(w, "failed to render config", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="inbound-%d-config.json"`, mc.InboundID))
+	_, _ = w.Write([]byte(out))
+}
+
+// findLinkTarget parses the {inboundID} URL param and looks it up among
+// sub's matched clients, writing 400/404 as appropriate.
+func (s *Server) findLinkTarget(w http.ResponseWriter, r *http.Request, sub domain.Subscription) (domain.MatchedClient, bool) {
+	inboundID, err := strconv.Atoi(chi.URLParam(r, "inboundID"))
+	if err != nil {
+		http.Error(w, "invalid inbound id", http.StatusBadRequest)
+		return domain.MatchedClient{}, false
+	}
+	mc, ok := findMatchedClient(sub, inboundID)
+	if !ok {
+		http.NotFound(w, r)
+		return domain.MatchedClient{}, false
+	}
+	return mc, true
 }
 
 func (s *Server) handleQRPNG(w http.ResponseWriter, r *http.Request) {

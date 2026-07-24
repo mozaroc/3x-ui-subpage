@@ -45,6 +45,13 @@ func (s *Server) Router() http.Handler {
 		r.Get("/incy", s.handleIncy)
 		r.Get("/qr.png", s.handleQRPNG)
 		r.Get("/qr.svg", s.handleQRSVG)
+
+		r.Route("/link/{inboundID}", func(r chi.Router) {
+			r.Get("/", s.handleLink)
+			r.Get("/qr.png", s.handleLinkQRPNG)
+			r.Get("/qr.svg", s.handleLinkQRSVG)
+			r.Get("/config.json", s.handleLinkConfig)
+		})
 	})
 
 	r.Route("/api/v1", func(r chi.Router) {

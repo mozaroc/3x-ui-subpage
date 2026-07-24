@@ -14,7 +14,6 @@ import (
 	"testing"
 
 	"github.com/irazin/3x-ui-subpage/internal/adminauth"
-	"github.com/irazin/3x-ui-subpage/internal/assignment"
 	"github.com/irazin/3x-ui-subpage/internal/config"
 	"github.com/irazin/3x-ui-subpage/internal/domain"
 	"github.com/irazin/3x-ui-subpage/internal/generator/clash"
@@ -409,46 +408,18 @@ func TestTemplates_SaveIsPickedUpByGenerator(t *testing.T) {
 	}
 }
 
-func TestAssignments_SaveIsPickedUpByResolver(t *testing.T) {
-	s, db := newTestServer(t)
+// The standalone Assignments page was removed -- template assignment now
+// lives on the User pages (see handlers_users_test.go).
+func TestAssignmentsRoute_Removed(t *testing.T) {
+	s, _ := newTestServer(t)
 	cookie := loginAndGetCookie(t, s)
-	token := csrfTokenFor(t, s, cookie)
 
-	form := url.Values{"sub_id": {"tok-alice"}, "profile": {"gaming"}, "csrf_token": {token}}
-	req := httptest.NewRequest(http.MethodPost, "/assignments", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req := httptest.NewRequest(http.MethodGet, "/assignments", nil)
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	s.Router().ServeHTTP(rec, req)
-	if rec.Code != http.StatusFound {
-		t.Fatalf("assignment save: expected 302, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	profile, err := assignment.New(db).Resolve("tok-alice")
-	if err != nil {
-		t.Fatalf("Resolve: %v", err)
-	}
-	if profile != "gaming" {
-		t.Errorf("expected resolver to reflect admin-saved assignment, got %q", profile)
-	}
-
-	// Delete it
-	form = url.Values{"csrf_token": {token}}
-	req = httptest.NewRequest(http.MethodPost, "/assignments/tok-alice/delete", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(cookie)
-	rec = httptest.NewRecorder()
-	s.Router().ServeHTTP(rec, req)
-	if rec.Code != http.StatusFound {
-		t.Fatalf("assignment delete: expected 302, got %d", rec.Code)
-	}
-
-	profile, err = assignment.New(db).Resolve("tok-alice")
-	if err != nil {
-		t.Fatalf("Resolve after delete: %v", err)
-	}
-	if profile != assignment.DefaultProfile {
-		t.Errorf("expected fallback to default after delete, got %q", profile)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected /admin/assignments to 404, got %d", rec.Code)
 	}
 }
 

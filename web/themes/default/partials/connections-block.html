@@ -1,0 +1,26 @@
+{{define "connections-block"}}
+{{if .Data.Connections}}
+<section class="card connections-block">
+  <h2>Direct connection links</h2>
+  <p class="qr-block__label">Import a single inbound directly, without the whole subscription URL.</p>
+  {{range .Data.Connections}}
+  <div class="connections-block__item">
+    <div class="connections-block__meta">
+      <strong>{{.Tag}}</strong> <span>{{.Protocol}}</span>
+    </div>
+    <div class="copy-row">
+      <input class="copy-row__input" type="text" readonly value="{{.Link}}">
+      <button class="btn btn--primary" data-copy="{{.Link}}">Copy</button>
+    </div>
+    <div class="connections-block__actions">
+      <details>
+        <summary>QR code</summary>
+        <img src="{{.QRPngURL}}" alt="QR code for {{.Tag}}" width="180" height="180">
+      </details>
+      <a class="btn btn--secondary" href="{{.ConfigURL}}" download>Download config</a>
+    </div>
+  </div>
+  {{end}}
+</section>
+{{end}}
+{{end}}

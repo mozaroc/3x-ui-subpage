@@ -85,6 +85,36 @@
 </div>
 
 <div class="card">
+  <h2>Direct connection links</h2>
+  {{if .Data.Connections}}
+  <div class="table-wrap">
+    <table>
+      <tr><th>Inbound</th><th>Protocol</th><th>Link</th><th></th><th></th><th></th></tr>
+      {{range .Data.Connections}}
+      <tr>
+        <td>{{.Tag}}</td>
+        <td>{{.Protocol}}</td>
+        <td class="mono wrap">{{.Link}}</td>
+        <td>
+          <button class="btn btn--secondary" type="button" data-copy="{{.Link}}">Copy</button>
+        </td>
+        <td>
+          <details>
+            <summary>QR code</summary>
+            <img src="{{.QRPngURL}}" alt="QR code for this inbound's connection link" width="160" height="160">
+          </details>
+        </td>
+        <td><a class="btn btn--secondary" href="{{.ConfigURL}}" download>Download config</a></td>
+      </tr>
+      {{end}}
+    </table>
+  </div>
+  {{else}}
+  <p class="hint">No direct connection links yet — this user has no successfully-synced inbounds.</p>
+  {{end}}
+</div>
+
+<div class="card">
   <h2>Edit</h2>
   <form method="post" action="/admin/users/{{.Data.User.ID}}">
     <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
@@ -141,6 +171,8 @@
         <textarea name="notes" rows="3">{{.Data.User.Notes}}</textarea>
       </div>
     </div>
+
+    {{template "assignment-fields" .Data.ClientTypes}}
 
     <div class="actions">
       <button class="btn btn--primary" type="submit">Save</button>

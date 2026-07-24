@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/irazin/3x-ui-subpage/internal/apps"
+	"github.com/irazin/3x-ui-subpage/internal/connlink"
 	"github.com/irazin/3x-ui-subpage/internal/domain"
 )
 
@@ -47,6 +48,7 @@ type SubscriptionView struct {
 	DownloadMihomo   string
 	Apps             []AppView
 	Support          SupportView
+	Connections      []connlink.View
 }
 
 // buildSubscriptionURL builds the public, shareable subscription link for
@@ -57,7 +59,7 @@ func buildSubscriptionURL(publicURL, subID string) string {
 
 // buildSubscriptionView assembles the full page view model for sub,
 // rendering every catalog app's deeplink against this subscriber's URL.
-func buildSubscriptionView(sub domain.Subscription, catalogApps []apps.App, support SupportView, publicURL string) SubscriptionView {
+func buildSubscriptionView(sub domain.Subscription, catalogApps []apps.App, support SupportView, publicURL string, connections []connlink.View) SubscriptionView {
 	subURL := buildSubscriptionURL(publicURL, sub.SubID)
 
 	appViews := make([]AppView, 0, len(catalogApps))
@@ -93,5 +95,6 @@ func buildSubscriptionView(sub domain.Subscription, catalogApps []apps.App, supp
 		DownloadMihomo:   fmt.Sprintf("/sub/%s/mihomo", sub.SubID),
 		Apps:             appViews,
 		Support:          support,
+		Connections:      connections,
 	}
 }

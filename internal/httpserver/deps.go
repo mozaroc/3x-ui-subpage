@@ -70,9 +70,10 @@ type AppCatalog interface {
 }
 
 // AssignmentResolver resolves which template profile a subscriber is
-// assigned to. Satisfied by *assignment.Store.
+// assigned to for a given "templates" format. Satisfied by
+// *assignment.Store.
 type AssignmentResolver interface {
-	Resolve(subID string) (string, error)
+	Resolve(subID, format string) (string, error)
 }
 
 // Deps holds every collaborator the HTTP layer needs.

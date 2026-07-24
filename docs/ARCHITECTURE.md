@@ -83,14 +83,24 @@ tiny bootstrap file naming that database's path.
   aggregating traffic/expiry/status.
 - **`internal/store`** — opens the single SQLite database (pure-Go
   `modernc.org/sqlite` driver, WAL journal mode), applies the embedded
-  schema (`CREATE TABLE IF NOT EXISTS`, no migration framework — the schema
-  is small enough not to need one). Every other package that touches the
-  database takes a `*sql.DB` and owns its own queries against its own
-  table(s); `store` itself has no query logic.
-- **`internal/assignment`** — resolves `subId -> profile` (table
-  `assignments`), the mechanism behind per-user template assignment.
-  Subscribers with no row get `"default"`. Also exposes `Set`/`Delete`/`List`
-  for the admin UI.
+  schema (`CREATE TABLE IF NOT EXISTS`, no general migration framework — the
+  schema is small enough not to need one). Every other package that touches
+  the database takes a `*sql.DB` and owns its own queries against its own
+  table(s); `store` itself has no query logic. The one exception so far is
+  `assignment.MigrateLegacy` (called once at startup, right after
+  `store.Open`), a hand-written one-shot migration that carries forward the
+  old single-column `assignments` table into `template_assignments` on
+  existing installs, then drops it — not a general framework, just a
+  targeted fix for that one table rename.
+- **`internal/assignment`** — resolves `(subId, format) -> profile` (table
+  `template_assignments`, keyed by `(sub_id, client_type)`), the mechanism
+  behind per-user, per-client-type template assignment. `ClientTypes` maps
+  each admin-facing client type (Xray, Clash, Mihomo, Happ, Incy) to the
+  `templates` table format(s) it governs — Xray is the one case where a
+  single client type spans two formats (`xray_link` and `xray_json`) under
+  one profile choice. Subscribers with no row for a client type get
+  `"default"`. Also exposes `Set`/`ForSubID`/`DeleteAll` for the admin UI —
+  set directly on each user's create/edit page, not a separate page.
 - **`internal/generator/*`** — render a resolved subscription into a client
   config format, using the subscriber's assigned profile:
   - `linkgen` — Xray share links (`vless://`, `vmess://`, `trojan://`,
@@ -174,12 +184,13 @@ tiny bootstrap file naming that database's path.
   (its own templates are `//go:embed`ded application code, **not**
   admin-editable database content — letting database content control the
   panel that administers the database would be a privilege-escalation
-  footgun) covering settings, applications, themes, templates, assignments,
-  routing, and users (create/edit/delete/suspend/reactivate/reset-traffic/
-  change-limits/change-expiry/regenerate-uuid/search/filter/sort/bulk-ops,
-  inbound assignment, and synchronization status, plus the `/admin/sync`
-  history/retry view). Session + CSRF + secure-header middleware; mounted
-  at `/admin` by `cmd/subscription-service`.
+  footgun) covering settings, applications, themes, templates, routing, and
+  users (create/edit/delete/suspend/reactivate/reset-traffic/change-limits/
+  change-expiry/regenerate-uuid/search/filter/sort/bulk-ops, inbound
+  assignment, per-client-type template assignment, direct connection links,
+  and synchronization status, plus the `/admin/sync` history/retry view).
+  Session + CSRF + secure-header middleware; mounted at `/admin` by
+  `cmd/subscription-service`.
 - **`internal/httpserver`** — chi router, middleware (secure headers, rate
   limiting, gzip, request logging), and handlers that resolve a
   subscriber's profile and wire the above together per request. This is the
@@ -200,8 +211,9 @@ independently testable against an in-memory SQLite database, without a real
 1. Middleware validates `subId` (bounded length, alnum/hyphen only).
 2. `resolver.Resolve` fetches inbounds via the cached lister, matches
    clients by `subId`, builds a `domain.Subscription`.
-3. `assignment.Store.Resolve` looks up the subscriber's template profile
-   (`"default"` if unassigned).
+3. `assignment.Store.Resolve` looks up the subscriber's template profile for
+   whichever format is about to be rendered (`"default"` if unassigned) —
+   each client type (Xray/Clash/Mihomo/Happ/Incy) resolves independently.
 4. Content negotiation on `User-Agent` picks a renderer:
    - browser → `theme.Engine.Render` (HTML page; app catalog and support
      info also loaded here, no profile involved)

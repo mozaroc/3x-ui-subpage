@@ -1,0 +1,19 @@
+{{define "assignment-fields"}}
+<div class="form-section">
+  <div class="form-section__title">Template assignments</div>
+  <p class="hint">Pick which template profile this user gets for each client type. "default" is the built-in fallback profile.</p>
+  <div class="form-grid">
+    {{range .}}
+    <div class="field field--md">
+      <label>{{.Label}}</label>
+      <select name="profile_{{.Key}}">
+        {{$selected := .Selected}}
+        {{range .Options}}
+        <option value="{{.}}" {{if eq . $selected}}selected{{end}}>{{.}}</option>
+        {{end}}
+      </select>
+    </div>
+    {{end}}
+  </div>
+</div>
+{{end}}

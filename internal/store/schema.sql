@@ -59,10 +59,16 @@ CREATE TABLE IF NOT EXISTS import_manifest (
     PRIMARY KEY (format, profile, protocol)
 );
 
-CREATE TABLE IF NOT EXISTS assignments (
-    sub_id     TEXT PRIMARY KEY,
-    profile    TEXT NOT NULL,
-    updated_at INTEGER NOT NULL
+-- One row per (subscriber, client type) — e.g. a subscriber can pick a
+-- different template profile for Xray vs Clash vs Mihomo vs Happ vs Incy.
+-- See internal/assignment.ClientTypes for the known client_type values and
+-- which "templates" table format(s) each one maps to.
+CREATE TABLE IF NOT EXISTS template_assignments (
+    sub_id      TEXT NOT NULL,
+    client_type TEXT NOT NULL,
+    profile     TEXT NOT NULL,
+    updated_at  INTEGER NOT NULL,
+    PRIMARY KEY (sub_id, client_type)
 );
 
 CREATE TABLE IF NOT EXISTS admin_users (

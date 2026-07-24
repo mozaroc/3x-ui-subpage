@@ -39,8 +39,9 @@ Then open `http://localhost:8080/admin`, log in, and fill in **Settings →
 xui** and **Settings → subscription** — those two have no safe default
 (panel URL + API key — from the panel's own Settings → Security → API
 Token — and this service's own public subscription URL).
-Everything else (applications, themes, templates, per-subscriber
-assignments) is editable from the same admin UI.
+Everything else (applications, themes, templates, per-subscriber template
+assignments — set directly on each user's edit page) is editable from the
+same admin UI.
 
 See [docs/CONFIGURATION.md](CONFIGURATION.md) for every settings key, what
 the admin UI covers, and the underlying table schemas if you'd rather script
@@ -58,12 +59,16 @@ changes via `sqlite3` directly.
 | `GET /sub/{subId}/happ` | Happ config (admin-defined template, no built-in schema) |
 | `GET /sub/{subId}/incy` | Incy config (admin-defined template, no built-in schema) |
 | `GET /sub/{subId}/qr.png` \| `/qr.svg` | QR code for the subscription URL |
+| `GET /sub/{subId}/link/{inboundId}` | Direct connection link (share-link URI) for a single inbound |
+| `GET /sub/{subId}/link/{inboundId}/qr.png` \| `/qr.svg` | QR code for that single inbound's link |
+| `GET /sub/{subId}/link/{inboundId}/config.json` | Single-inbound full xray-core config download |
 | `GET /api/v1/subscription/{subId}` | JSON view of the resolved subscription |
 | `GET /api/v1/applications` | JSON application catalog |
 | `GET /healthz` | Liveness check |
 
 Every format-specific endpoint renders using the subscriber's assigned
-template profile (table `assignments`; `"default"` if unassigned).
+template profile for that client type (table `template_assignments`, keyed
+by `(sub_id, client_type)`; `"default"` if unassigned).
 
 `{subId}` is the same `subId` field 3x-ui already stores per client — this
 service doesn't mint its own tokens, so existing 3x-ui subscription links

@@ -69,6 +69,11 @@ func main() {
 	}
 	defer db.Close()
 
+	if err := assignment.MigrateLegacy(db); err != nil {
+		fmt.Fprintf(os.Stderr, "subscription-service: %v\n", err)
+		os.Exit(1)
+	}
+
 	if *importDir != "" {
 		if err := importer.Import(db, *importDir); err != nil {
 			fmt.Fprintf(os.Stderr, "subscription-service: import failed: %v\n", err)

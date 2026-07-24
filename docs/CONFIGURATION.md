@@ -58,9 +58,6 @@ bearer-token-only.
   file download instead. That JSON is only served from the explicit
   `GET /sub/{subId}/happ` endpoint, for admins who want to experiment with
   it deliberately (e.g. via a custom app-catalog deeplink).
-- **Assignments** — which template profile each subscriber (`subId`) uses.
-  Unassigned subscribers use `"default"`. Hot-reloaded — reassigning a
-  subscriber changes what they're served on their very next request.
 - **Routing** — GEOIP/geosite/domain/domain-suffix/domain-keyword/regex/
   CIDR/IP-range/process/protocol/port/DNS/custom rules, keyed by
   `(profile, sort_order)`. Exposed to every generator template as `.Rules`
@@ -84,6 +81,15 @@ bearer-token-only.
   since they're the equivalent credential for those protocols — **but see
   the verified caveat below: on the 3x-ui version this was tested against,
   the panel only actually honors the *password* half of that rotation.**
+  The same create/edit form also has a **template assignment** section —
+  one dropdown per client type (Xray, Clash, Mihomo, Happ, Incy) listing
+  every profile that has a template for that type; picking one is what
+  used to require the separate Assignments page. Unpicked client types use
+  `"default"`. Hot-reloaded — reassigning a subscriber changes what they're
+  served on their very next request. The detail page also lists a direct
+  connection link (share-link URI, copy button, QR code, and a
+  single-inbound config download) for every one of that user's synced
+  inbounds, alongside the whole-subscription URL/QR.
 - **Sync** (`/admin/sync`, and the sync history on each user's detail page)
   — every push to 3x-ui is queued, retried with backoff on failure
   (terminally failed after 8 attempts, manually retriable from either
@@ -147,15 +153,17 @@ UI — useful for bulk imports/exports or one-off automation:
 
 ```sql
 -- tables: settings, applications, themes, theme_files, templates,
--- assignments, routing_rules, users, user_inbounds, sync_jobs
+-- template_assignments, routing_rules, users, user_inbounds, sync_jobs
 INSERT INTO settings (key, value, updated_at) VALUES
   ('support', '{"telegram":"https://t.me/example"}', unixepoch());
 
 INSERT INTO templates (format, profile, protocol, content, updated_at)
   VALUES ('mihomo', 'gaming', '', '<your gaming mihomo yaml>', unixepoch());
 
-INSERT INTO assignments (sub_id, profile, updated_at)
-  VALUES ('the-subscribers-subid', 'gaming', unixepoch());
+-- client_type is one of: xray, clash, mihomo, happ, incy (xray covers both
+-- the xray_link and xray_json template formats under one profile choice)
+INSERT INTO template_assignments (sub_id, client_type, profile, updated_at)
+  VALUES ('the-subscribers-subid', 'mihomo', 'gaming', unixepoch());
 
 INSERT INTO routing_rules (profile, sort_order, type, value, outbound, enabled, updated_at)
   VALUES ('gaming', 0, 'domain_suffix', 'steampowered.com', 'direct', 1, unixepoch());

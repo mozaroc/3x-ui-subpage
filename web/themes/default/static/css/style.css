@@ -186,6 +186,28 @@ body {
 
 .downloads__actions { display: flex; gap: 10px; flex-wrap: wrap; }
 
+.connections-block__item {
+  padding: 14px 0;
+  border-top: 1px solid var(--color-border);
+}
+.connections-block__item:first-of-type { border-top: none; }
+.connections-block__meta {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+  color: var(--color-muted);
+}
+.connections-block__meta strong { color: var(--color-text); }
+.connections-block__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.connections-block__actions img { border-radius: 8px; background: #fff; padding: 6px; margin-top: 8px; display: block; }
+
 .apps__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));

@@ -1,7 +1,8 @@
 // Package admin implements the server-rendered admin panel: login/session
 // management and full CRUD over settings, the application catalog, themes,
-// generator templates, and per-user template assignments. Mounted at
-// /admin by cmd/subscription-service.
+// generator templates, and per-user template assignments (set directly on
+// the User pages -- see handlers_users.go). Mounted at /admin by
+// cmd/subscription-service.
 //
 // Unlike the subscriber-facing theme engine, this package's own HTML is
 // //go:embed'ded application code, not admin-editable database content —
@@ -20,6 +21,7 @@ import (
 	"github.com/irazin/3x-ui-subpage/internal/apps"
 	"github.com/irazin/3x-ui-subpage/internal/assignment"
 	"github.com/irazin/3x-ui-subpage/internal/domain"
+	"github.com/irazin/3x-ui-subpage/internal/generator/linkgen"
 	"github.com/irazin/3x-ui-subpage/internal/ratelimit"
 	"github.com/irazin/3x-ui-subpage/internal/routing"
 	"github.com/irazin/3x-ui-subpage/internal/sync"
@@ -46,6 +48,7 @@ type Server struct {
 	themes      *theme.AdminStore
 	templates   *templatestore.Store
 	assignments *assignment.Store
+	linkGen     *linkgen.Generator
 	routing     *routing.Store
 	users       *users.Store
 	syncJobs    *sync.Store
@@ -72,6 +75,7 @@ func New(db *sql.DB, logger *slog.Logger, usersStore *users.Store, syncStore *sy
 		themes:       theme.NewAdminStore(db),
 		templates:    templatestore.New(db),
 		assignments:  assignment.New(db),
+		linkGen:      linkgen.New(db),
 		routing:      routing.New(db),
 		users:        usersStore,
 		syncJobs:     syncStore,
@@ -121,10 +125,6 @@ func (s *Server) Router() http.Handler {
 		r.Get("/templates/{format}/{profile}/{protocol}", s.handleTemplateEdit)
 		r.With(s.verifyCSRF).Post("/templates/{format}/{profile}/{protocol}", s.handleTemplateSave)
 		r.With(s.verifyCSRF).Post("/templates/{format}/{profile}/{protocol}/delete", s.handleTemplateDelete)
-
-		r.Get("/assignments", s.handleAssignmentsList)
-		r.With(s.verifyCSRF).Post("/assignments", s.handleAssignmentSave)
-		r.With(s.verifyCSRF).Post("/assignments/{subID}/delete", s.handleAssignmentDelete)
 
 		r.Get("/routing", s.handleRoutingList)
 		r.Get("/routing/new", s.handleRoutingForm)

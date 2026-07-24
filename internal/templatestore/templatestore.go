@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -53,6 +54,43 @@ func (s *Store) List() ([]Row, error) {
 			return nil, fmt.Errorf("templatestore: scan: %w", err)
 		}
 		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("templatestore: iterate: %w", err)
+	}
+	return out, nil
+}
+
+// ProfilesForFormats returns every distinct profile that has at least one
+// template row under any of formats, sorted, with "default" always present
+// even if no row exists yet (it's the universal fallback every generator
+// applies, so a selector built from this should never dead-end).
+func (s *Store) ProfilesForFormats(formats []string) ([]string, error) {
+	placeholders := make([]string, len(formats))
+	args := make([]any, len(formats))
+	for i, f := range formats {
+		placeholders[i] = "?"
+		args[i] = f
+	}
+
+	query := fmt.Sprintf(`SELECT DISTINCT profile FROM templates WHERE format IN (%s) ORDER BY profile`, strings.Join(placeholders, ","))
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("templatestore: query profiles for formats %v: %w", formats, err)
+	}
+	defer rows.Close()
+
+	seen := map[string]bool{"default": true}
+	out := []string{"default"}
+	for rows.Next() {
+		var profile string
+		if err := rows.Scan(&profile); err != nil {
+			return nil, fmt.Errorf("templatestore: scan: %w", err)
+		}
+		if !seen[profile] {
+			seen[profile] = true
+			out = append(out, profile)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("templatestore: iterate: %w", err)

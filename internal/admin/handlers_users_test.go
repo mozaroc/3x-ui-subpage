@@ -1,13 +1,16 @@
 package admin
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
 
+	"github.com/irazin/3x-ui-subpage/internal/domain"
 	"github.com/irazin/3x-ui-subpage/internal/sync"
+	"github.com/irazin/3x-ui-subpage/internal/templatestore"
 	"github.com/irazin/3x-ui-subpage/internal/users"
 	"github.com/irazin/3x-ui-subpage/internal/xui"
 )
@@ -99,6 +102,176 @@ func TestUsers_Update(t *testing.T) {
 	}
 	if u.Username != "bob2" || u.TotalGB != 5_000_000_000 {
 		t.Fatalf("update didn't apply: %+v", u)
+	}
+}
+
+func TestUsers_Create_SetsTemplateAssignments(t *testing.T) {
+	s, _ := newTestServer(t)
+	cookie := loginAndGetCookie(t, s)
+	token := csrfTokenFor(t, s, cookie)
+
+	form := url.Values{
+		"username": {"dave"}, "sub_id": {"sub-dave"},
+		"profile_xray": {"gaming"}, "profile_clash": {"minimal"},
+		"csrf_token": {token},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("create user: expected 302, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	got, err := s.assignments.ForSubID("sub-dave")
+	if err != nil {
+		t.Fatalf("ForSubID: %v", err)
+	}
+	if got["xray"] != "gaming" {
+		t.Errorf("expected xray=gaming, got %q", got["xray"])
+	}
+	if got["clash"] != "minimal" {
+		t.Errorf("expected clash=minimal, got %q", got["clash"])
+	}
+	if got["mihomo"] != "default" {
+		t.Errorf("expected untouched client type to default, got %q", got["mihomo"])
+	}
+}
+
+// createUserViaHandler (used by most tests in this file) never submits any
+// profile_* field -- this must not persist a literal empty-string profile,
+// it must normalize to "default".
+func TestUsers_Create_WithoutAssignmentFieldsDefaultsEveryClientType(t *testing.T) {
+	s, _ := newTestServer(t)
+	cookie := loginAndGetCookie(t, s)
+	token := csrfTokenFor(t, s, cookie)
+
+	createUserViaHandler(t, s, cookie, token, "erin", "sub-erin")
+
+	got, err := s.assignments.ForSubID("sub-erin")
+	if err != nil {
+		t.Fatalf("ForSubID: %v", err)
+	}
+	for clientType, profile := range got {
+		if profile != "default" {
+			t.Errorf("expected %s=default, got %q", clientType, profile)
+		}
+	}
+}
+
+func TestUsers_Update_MovesAssignmentsWhenSubIDChanges(t *testing.T) {
+	s, _ := newTestServer(t)
+	cookie := loginAndGetCookie(t, s)
+	token := csrfTokenFor(t, s, cookie)
+
+	id := createUserViaHandler(t, s, cookie, token, "frank", "sub-frank-old")
+	if err := s.assignments.Set("sub-frank-old", "xray", "gaming"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	form := url.Values{
+		"username": {"frank"}, "sub_id": {"sub-frank-new"},
+		"profile_xray": {"gaming"},
+		"csrf_token":   {token},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/users/"+itoa(id), strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("update: expected 302, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	oldAssignments, err := s.assignments.ForSubID("sub-frank-old")
+	if err != nil {
+		t.Fatalf("ForSubID(old): %v", err)
+	}
+	for clientType, profile := range oldAssignments {
+		if profile != "default" {
+			t.Errorf("expected old sub_id's assignments cleaned up, still have %s=%q", clientType, profile)
+		}
+	}
+
+	newAssignments, err := s.assignments.ForSubID("sub-frank-new")
+	if err != nil {
+		t.Fatalf("ForSubID(new): %v", err)
+	}
+	if newAssignments["xray"] != "gaming" {
+		t.Errorf("expected new sub_id to carry the submitted assignment, got %q", newAssignments["xray"])
+	}
+}
+
+func TestUsers_Delete_CleansUpTemplateAssignments(t *testing.T) {
+	s, _ := newTestServer(t)
+	cookie := loginAndGetCookie(t, s)
+	token := csrfTokenFor(t, s, cookie)
+
+	id := createUserViaHandler(t, s, cookie, token, "grace", "sub-grace")
+	if err := s.assignments.Set("sub-grace", "xray", "gaming"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	form := url.Values{"csrf_token": {token}}
+	req := httptest.NewRequest(http.MethodPost, "/users/"+itoa(id)+"/delete", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("delete: expected 302, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	got, err := s.assignments.ForSubID("sub-grace")
+	if err != nil {
+		t.Fatalf("ForSubID: %v", err)
+	}
+	for clientType, profile := range got {
+		if profile != "default" {
+			t.Errorf("expected assignments cleaned up after delete, still have %s=%q", clientType, profile)
+		}
+	}
+}
+
+func TestUserDetail_ShowsDirectConnectionLinks(t *testing.T) {
+	s, db := newTestServer(t)
+	cookie := loginAndGetCookie(t, s)
+	token := csrfTokenFor(t, s, cookie)
+
+	if err := templatestore.New(db).Put("xray_link", "default", "vless", "vless://{{.UUID}}@{{.Server}}:{{.Port}}"); err != nil {
+		t.Fatalf("seed xray_link template: %v", err)
+	}
+
+	id := createUserViaHandler(t, s, cookie, token, "heidi", "sub-heidi")
+
+	s.resolve = &fakeResolver{resolveFn: func(ctx context.Context, subID string) (domain.Subscription, error) {
+		return domain.Subscription{
+			SubID:  subID,
+			Status: domain.StatusActive,
+			Clients: []domain.MatchedClient{
+				{InboundID: 42, Remark: "my-inbound", Protocol: domain.ProtocolVLESS, Server: "vpn.example.com", Port: 443, Client: domain.ClientAccount{ID: "uuid-heidi"}},
+			},
+		}, nil
+	}}
+
+	req := httptest.NewRequest(http.MethodGet, "/users/"+itoa(id), nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "vless://uuid-heidi@vpn.example.com:443") {
+		t.Fatalf("expected page to render the connection link, got: %s", body)
+	}
+	if !strings.Contains(body, "/sub/sub-heidi/link/42/qr.png") {
+		t.Fatalf("expected page to reference the per-inbound qr endpoint, got: %s", body)
+	}
+	if !strings.Contains(body, "/sub/sub-heidi/link/42/config.json") {
+		t.Fatalf("expected page to reference the per-inbound config download, got: %s", body)
 	}
 }
 

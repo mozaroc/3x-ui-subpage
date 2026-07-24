@@ -13,7 +13,7 @@ func TestOpen_CreatesSchema(t *testing.T) {
 	}
 	defer db.Close()
 
-	tables := []string{"settings", "applications", "themes", "theme_files", "templates", "assignments"}
+	tables := []string{"settings", "applications", "themes", "theme_files", "templates", "template_assignments"}
 	for _, tbl := range tables {
 		var name string
 		err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", tbl).Scan(&name)

@@ -1,26 +1,53 @@
 // Package assignment resolves which template "profile" a subscriber should
-// get (table "assignments", sub_id -> profile). Subscribers with no row
-// use the "default" profile — the same fallback every generator applies
-// when a profile is missing a template for a given format/protocol.
+// get, per client type (table "template_assignments", (sub_id, client_type)
+// -> profile). Subscribers with no row for a given client type use the
+// "default" profile — the same fallback every generator applies when a
+// profile is missing a template for a given format/protocol.
 package assignment
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"time"
 )
 
-// DefaultProfile is returned for any subscriber with no assignment row.
+// DefaultProfile is returned for any (subscriber, client type) with no
+// assignment row.
 const DefaultProfile = "default"
 
-// Assignment is one subscriber -> profile mapping.
-type Assignment struct {
-	SubID   string
-	Profile string
+// ClientType is one admin-facing template-assignment selector. Formats
+// lists which "templates" table format(s) this client type's profile
+// applies to -- 1:1 for everything except Xray, which spans both its
+// share-link and full-JSON template formats under one selector.
+type ClientType struct {
+	Key     string
+	Label   string
+	Formats []string
 }
 
-// Store resolves subscription-token -> profile-name assignments.
+// ClientTypes are every known client type, in display order.
+var ClientTypes = []ClientType{
+	{Key: "xray", Label: "Xray", Formats: []string{"xray_link", "xray_json"}},
+	{Key: "clash", Label: "Clash", Formats: []string{"clash"}},
+	{Key: "mihomo", Label: "Mihomo", Formats: []string{"mihomo"}},
+	{Key: "happ", Label: "Happ", Formats: []string{"happ"}},
+	{Key: "incy", Label: "Incy", Formats: []string{"incy"}},
+}
+
+// formatToClientType maps a "templates" table format string back to the
+// client type key that governs its profile.
+var formatToClientType = func() map[string]string {
+	m := make(map[string]string)
+	for _, ct := range ClientTypes {
+		for _, f := range ct.Formats {
+			m[f] = ct.Key
+		}
+	}
+	return m
+}()
+
+// Store resolves subscription-token -> profile-name assignments, per
+// client type.
 type Store struct {
 	db *sql.DB
 }
@@ -30,57 +57,71 @@ func New(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
-// Resolve returns the profile assigned to subID, or DefaultProfile if no
-// assignment exists.
-func (s *Store) Resolve(subID string) (string, error) {
+// Resolve returns the profile assigned to subID for the given "templates"
+// format, or DefaultProfile if no assignment exists. format must be one of
+// the strings listed in some ClientType.Formats.
+func (s *Store) Resolve(subID, format string) (string, error) {
+	clientType, ok := formatToClientType[format]
+	if !ok {
+		return "", fmt.Errorf("assignment: unknown format %q", format)
+	}
+
 	var profile string
-	err := s.db.QueryRow(`SELECT profile FROM assignments WHERE sub_id = ?`, subID).Scan(&profile)
+	err := s.db.QueryRow(
+		`SELECT profile FROM template_assignments WHERE sub_id = ? AND client_type = ?`,
+		subID, clientType,
+	).Scan(&profile)
 	switch {
 	case err == nil:
 		return profile, nil
-	case errors.Is(err, sql.ErrNoRows):
+	case err == sql.ErrNoRows:
 		return DefaultProfile, nil
 	default:
-		return "", fmt.Errorf("assignment: query %s: %w", subID, err)
+		return "", fmt.Errorf("assignment: query %s/%s: %w", subID, clientType, err)
 	}
 }
 
-// Set assigns subID to profile, creating or overwriting its row.
-func (s *Store) Set(subID, profile string) error {
+// Set assigns subID's clientType to profile, creating or overwriting its
+// row.
+func (s *Store) Set(subID, clientType, profile string) error {
 	_, err := s.db.Exec(`
-		INSERT INTO assignments (sub_id, profile, updated_at) VALUES (?, ?, ?)
-		ON CONFLICT(sub_id) DO UPDATE SET profile = excluded.profile, updated_at = excluded.updated_at`,
-		subID, profile, time.Now().UnixNano())
+		INSERT INTO template_assignments (sub_id, client_type, profile, updated_at) VALUES (?, ?, ?, ?)
+		ON CONFLICT(sub_id, client_type) DO UPDATE SET profile = excluded.profile, updated_at = excluded.updated_at`,
+		subID, clientType, profile, time.Now().UnixNano())
 	if err != nil {
-		return fmt.Errorf("assignment: set %s: %w", subID, err)
+		return fmt.Errorf("assignment: set %s/%s: %w", subID, clientType, err)
 	}
 	return nil
 }
 
-// Delete removes subID's assignment (it falls back to DefaultProfile).
-func (s *Store) Delete(subID string) error {
-	if _, err := s.db.Exec(`DELETE FROM assignments WHERE sub_id = ?`, subID); err != nil {
-		return fmt.Errorf("assignment: delete %s: %w", subID, err)
+// ForSubID returns every client type's assigned profile for subID, filling
+// in DefaultProfile for any client type with no explicit row.
+func (s *Store) ForSubID(subID string) (map[string]string, error) {
+	out := make(map[string]string, len(ClientTypes))
+	for _, ct := range ClientTypes {
+		out[ct.Key] = DefaultProfile
 	}
-	return nil
-}
 
-// List returns every explicit assignment (subscribers with no row, using
-// DefaultProfile implicitly, are not listed).
-func (s *Store) List() ([]Assignment, error) {
-	rows, err := s.db.Query(`SELECT sub_id, profile FROM assignments ORDER BY sub_id`)
+	rows, err := s.db.Query(`SELECT client_type, profile FROM template_assignments WHERE sub_id = ?`, subID)
 	if err != nil {
-		return nil, fmt.Errorf("assignment: query: %w", err)
+		return nil, fmt.Errorf("assignment: query %s: %w", subID, err)
 	}
 	defer rows.Close()
 
-	out := make([]Assignment, 0)
 	for rows.Next() {
-		var a Assignment
-		if err := rows.Scan(&a.SubID, &a.Profile); err != nil {
-			return nil, fmt.Errorf("assignment: scan: %w", err)
+		var clientType, profile string
+		if err := rows.Scan(&clientType, &profile); err != nil {
+			return nil, fmt.Errorf("assignment: scan %s: %w", subID, err)
 		}
-		out = append(out, a)
+		out[clientType] = profile
 	}
 	return out, rows.Err()
+}
+
+// DeleteAll removes every assignment row for subID (every client type).
+func (s *Store) DeleteAll(subID string) error {
+	if _, err := s.db.Exec(`DELETE FROM template_assignments WHERE sub_id = ?`, subID); err != nil {
+		return fmt.Errorf("assignment: delete all %s: %w", subID, err)
+	}
+	return nil
 }

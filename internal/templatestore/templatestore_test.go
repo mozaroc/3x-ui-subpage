@@ -110,6 +110,62 @@ func TestList_OrderedAndAllFormats(t *testing.T) {
 	}
 }
 
+func TestProfilesForFormats_AlwaysIncludesDefault(t *testing.T) {
+	db := openTestDB(t)
+	s := New(db)
+
+	profiles, err := s.ProfilesForFormats([]string{"xray_link", "xray_json"})
+	if err != nil {
+		t.Fatalf("ProfilesForFormats: %v", err)
+	}
+	if len(profiles) != 1 || profiles[0] != "default" {
+		t.Errorf("expected only default on a fresh store, got %v", profiles)
+	}
+}
+
+func TestProfilesForFormats_UnionAcrossFormatsDeduped(t *testing.T) {
+	db := openTestDB(t)
+	s := New(db)
+
+	if err := s.Put("xray_link", "gaming", "vless", "tmpl"); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if err := s.Put("xray_json", "gaming", "", "tmpl"); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if err := s.Put("xray_link", "minimal", "vless", "tmpl"); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if err := s.Put("clash", "unrelated", "", "tmpl"); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	profiles, err := s.ProfilesForFormats([]string{"xray_link", "xray_json"})
+	if err != nil {
+		t.Fatalf("ProfilesForFormats: %v", err)
+	}
+	want := map[string]bool{"default": true, "gaming": true, "minimal": true}
+	if len(profiles) != len(want) {
+		t.Fatalf("expected %d profiles, got %v", len(want), profiles)
+	}
+	for _, p := range profiles {
+		if !want[p] {
+			t.Errorf("unexpected profile %q in result %v", p, profiles)
+		}
+	}
+	for p := range want {
+		found := false
+		for _, got := range profiles {
+			if got == p {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected %q in result, got %v", p, profiles)
+		}
+	}
+}
+
 func TestDelete(t *testing.T) {
 	db := openTestDB(t)
 	s := New(db)

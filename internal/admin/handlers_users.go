@@ -11,6 +11,9 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/go-chi/chi/v5"
 
+	"github.com/irazin/3x-ui-subpage/internal/assignment"
+	"github.com/irazin/3x-ui-subpage/internal/connlink"
+	"github.com/irazin/3x-ui-subpage/internal/domain"
 	"github.com/irazin/3x-ui-subpage/internal/sync"
 	"github.com/irazin/3x-ui-subpage/internal/users"
 	"github.com/irazin/3x-ui-subpage/internal/xui"
@@ -130,6 +133,56 @@ func userFromForm(r *http.Request) (users.User, error) {
 		TotalGB:  totalBytes,
 		ExpiryMs: expiryMs,
 	}, nil
+}
+
+// clientTypeOption is one client-type template-profile selector, ready to
+// render as a <select> on the User create/edit page.
+type clientTypeOption struct {
+	Key      string
+	Label    string
+	Options  []string
+	Selected string
+}
+
+// clientTypeOptions builds the per-client-type template selector list for
+// subID (pass "" for a brand-new user that has no assignments yet -- every
+// client type simply comes back selected on "default").
+func (s *Server) clientTypeOptions(subID string) ([]clientTypeOption, error) {
+	assigned, err := s.assignments.ForSubID(subID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve template assignments for %s: %w", subID, err)
+	}
+
+	out := make([]clientTypeOption, 0, len(assignment.ClientTypes))
+	for _, ct := range assignment.ClientTypes {
+		profiles, err := s.templates.ProfilesForFormats(ct.Formats)
+		if err != nil {
+			return nil, fmt.Errorf("list profiles for %s: %w", ct.Key, err)
+		}
+		out = append(out, clientTypeOption{
+			Key: ct.Key, Label: ct.Label, Options: profiles, Selected: assigned[ct.Key],
+		})
+	}
+	return out, nil
+}
+
+// applyAssignmentsFromForm reads one profile_<key> field per known client
+// type and upserts it for subID. A blank/missing field normalizes to
+// assignment.DefaultProfile -- otherwise a submission that skips these
+// fields (e.g. an API caller, or a test that doesn't render the real form)
+// would persist a literal empty-string profile instead of falling back to
+// "default".
+func (s *Server) applyAssignmentsFromForm(r *http.Request, subID string) error {
+	for _, ct := range assignment.ClientTypes {
+		profile := strings.TrimSpace(r.FormValue("profile_" + ct.Key))
+		if profile == "" {
+			profile = assignment.DefaultProfile
+		}
+		if err := s.assignments.Set(subID, ct.Key, profile); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type userRow struct {
@@ -252,15 +305,24 @@ func (s *Server) handleUsersList(w http.ResponseWriter, r *http.Request) {
 }
 
 type userFormPageData struct {
-	IsNew bool
-	Error string
+	IsNew       bool
+	ClientTypes []clientTypeOption
+	Error       string
 }
 
 func (s *Server) handleUserForm(w http.ResponseWriter, r *http.Request) {
 	sess, _ := sessionFromContext(r)
+
+	clientTypes, err := s.clientTypeOptions("")
+	if err != nil {
+		s.logger.Error("admin: load client type options failed", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
 	_ = render(w, "page-user-form", PageData{
 		Username: sess.Username, CSRFToken: sess.CSRFToken,
-		Data: userFormPageData{IsNew: true},
+		Data: userFormPageData{IsNew: true, ClientTypes: clientTypes},
 	})
 }
 
@@ -282,6 +344,11 @@ func (s *Server) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+
+	if err := s.applyAssignmentsFromForm(r, u.SubID); err != nil {
+		s.logger.Error("admin: set template assignments failed", "id", id, "err", err)
+	}
+
 	http.Redirect(w, r, fmt.Sprintf("/admin/users/%d", id), http.StatusFound)
 }
 
@@ -314,6 +381,8 @@ type userDetailPageData struct {
 	SubscriptionURL string
 	QRPngURL        string
 	Inbounds        []inboundOption
+	ClientTypes     []clientTypeOption
+	Connections     []connlink.View
 	SyncJobs        []syncJobRow
 	Error           string
 }
@@ -361,7 +430,8 @@ func (s *Server) handleUserDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	status, trafficUsed, trafficLimit, liveExpiry := "Not synced", "0 B", formatBytesLimit(u.TotalGB), "n/a"
-	if sub, err := s.resolve.Resolve(r.Context(), u.SubID); err == nil {
+	sub, resolveErr := s.resolve.Resolve(r.Context(), u.SubID)
+	if resolveErr == nil {
 		status = capitalize(string(sub.Status))
 		trafficUsed = formatBytes(sub.Traffic.Used())
 		trafficLimit = formatBytesLimit(sub.Traffic.Total)
@@ -392,6 +462,27 @@ func (s *Server) handleUserDetail(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	clientTypes, err := s.clientTypeOptions(u.SubID)
+	if err != nil {
+		s.logger.Error("admin: load client type options failed", "id", id, "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Direct connection links are a display enhancement -- a failure to
+	// resolve them shouldn't take down the rest of the page.
+	var connections []connlink.View
+	if resolveErr == nil {
+		xrayProfile, err := s.assignments.Resolve(u.SubID, "xray_link")
+		if err != nil {
+			s.logger.Warn("admin: resolve xray profile for connection links failed", "id", id, "err", err)
+		} else {
+			connections = connlink.Build(u.SubID, sub.Clients, xrayProfile, s.linkGen, func(mc domain.MatchedClient, err error) {
+				s.logger.Warn("admin: build connection link failed", "id", id, "inbound_id", mc.InboundID, "err", err)
+			})
+		}
+	}
+
 	_ = render(w, "page-user-detail", PageData{
 		Username: sess.Username, CSRFToken: sess.CSRFToken,
 		Data: userDetailPageData{
@@ -402,7 +493,7 @@ func (s *Server) handleUserDetail(w http.ResponseWriter, r *http.Request) {
 			SyncStatus:      syncStatus,
 			SubscriptionURL: fmt.Sprintf("%s/sub/%s", strings.TrimSuffix(s.publicURL, "/"), u.SubID),
 			QRPngURL:        fmt.Sprintf("/sub/%s/qr.png", u.SubID),
-			Inbounds:        options, SyncJobs: jobRows,
+			Inbounds:        options, ClientTypes: clientTypes, Connections: connections, SyncJobs: jobRows,
 		},
 	})
 }
@@ -420,6 +511,18 @@ func (s *Server) handleUserUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	existing, err := s.users.Get(id)
+	if errors.Is(err, users.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		s.logger.Error("admin: get user before update failed", "id", id, "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	oldSubID := existing.SubID
+
 	if err := s.users.Update(id, u); err != nil {
 		if errors.Is(err, users.ErrNotFound) {
 			http.NotFound(w, r)
@@ -432,6 +535,15 @@ func (s *Server) handleUserUpdate(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("admin: update user failed", "id", id, "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+
+	if oldSubID != u.SubID {
+		if err := s.assignments.DeleteAll(oldSubID); err != nil {
+			s.logger.Error("admin: clean up template assignments for old sub_id failed", "id", id, "err", err)
+		}
+	}
+	if err := s.applyAssignmentsFromForm(r, u.SubID); err != nil {
+		s.logger.Error("admin: set template assignments failed", "id", id, "err", err)
 	}
 
 	if updated, err := s.users.Get(id); err != nil {
@@ -476,6 +588,10 @@ func (s *Server) handleUserDelete(w http.ResponseWriter, r *http.Request) {
 		if _, err := s.syncJobs.Enqueue(id, 0, sync.OpDelete, payloadFor(u)); err != nil {
 			s.logger.Error("admin: enqueue delete on delete failed", "id", id, "err", err)
 		}
+	}
+
+	if err := s.assignments.DeleteAll(u.SubID); err != nil {
+		s.logger.Error("admin: clean up template assignments on delete failed", "id", id, "err", err)
 	}
 
 	if err := s.users.Delete(id); err != nil && !errors.Is(err, users.ErrNotFound) {

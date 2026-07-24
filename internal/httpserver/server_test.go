@@ -70,6 +70,29 @@ func (f fakeTheme) ServeStatic(w http.ResponseWriter, r *http.Request, path stri
 	return true, err
 }
 
+// htmlConnectionsTheme renders every connection link's URI and QR URL into
+// the body, so a test can assert the HTML page surfaces them.
+type htmlConnectionsTheme struct{}
+
+func (htmlConnectionsTheme) Render(w io.Writer, data any) error {
+	view := data.(SubscriptionView)
+	var sb strings.Builder
+	sb.WriteString("<html>")
+	for _, c := range view.Connections {
+		sb.WriteString(c.Link)
+		sb.WriteString(" ")
+		sb.WriteString(c.QRPngURL)
+		sb.WriteString(" ")
+	}
+	sb.WriteString("</html>")
+	_, err := w.Write([]byte(sb.String()))
+	return err
+}
+
+func (htmlConnectionsTheme) ServeStatic(w http.ResponseWriter, r *http.Request, path string) (bool, error) {
+	return false, nil
+}
+
 type fakeApps struct{ apps []apps.App }
 
 func (f fakeApps) List() ([]apps.App, error) { return f.apps, nil }
@@ -81,7 +104,7 @@ type fakeAssignments struct {
 	err     error
 }
 
-func (f fakeAssignments) Resolve(subID string) (string, error) {
+func (f fakeAssignments) Resolve(subID, format string) (string, error) {
 	if f.err != nil {
 		return "", f.err
 	}
@@ -122,7 +145,7 @@ func sampleSubscription() domain.Subscription {
 		Username: "alice",
 		Status:   domain.StatusActive,
 		Clients: []domain.MatchedClient{
-			{Protocol: domain.ProtocolVLESS, Server: "vpn.example.com", Port: 443, Client: domain.ClientAccount{ID: "uuid-1", Email: "alice"}},
+			{InboundID: 1, Remark: "inbound-1", Protocol: domain.ProtocolVLESS, Server: "vpn.example.com", Port: 443, Client: domain.ClientAccount{ID: "uuid-1", Email: "alice"}},
 		},
 	}
 }
@@ -451,6 +474,106 @@ func TestHandleSubscription_UnassignedSubscriberGetsDefaultProfile(t *testing.T)
 	}
 	if !strings.Contains(rec.Body.String(), "default: true") {
 		t.Errorf("expected default profile's template to be used, got: %s", rec.Body.String())
+	}
+}
+
+func TestHandleLink_ReturnsRawShareLink(t *testing.T) {
+	srv := New(testDeps(t, sampleSubscription(), nil))
+	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc/link/1", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.String() != "vless://fake" {
+		t.Errorf("expected raw share link body, got: %s", rec.Body.String())
+	}
+}
+
+func TestHandleLink_UnknownInboundIsNotFound(t *testing.T) {
+	srv := New(testDeps(t, sampleSubscription(), nil))
+	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc/link/999", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for an inbound the subscriber doesn't have, got %d", rec.Code)
+	}
+}
+
+func TestHandleLinkQRPNG(t *testing.T) {
+	srv := New(testDeps(t, sampleSubscription(), nil))
+	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc/link/1/qr.png", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "image/png" {
+		t.Errorf("expected image/png, got %q", ct)
+	}
+	if rec.Body.Len() == 0 {
+		t.Error("expected non-empty PNG body")
+	}
+}
+
+func TestHandleLinkQRSVG(t *testing.T) {
+	srv := New(testDeps(t, sampleSubscription(), nil))
+	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc/link/1/qr.svg", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "image/svg+xml" {
+		t.Errorf("expected image/svg+xml, got %q", ct)
+	}
+}
+
+func TestHandleLinkConfig_SingleClientDownload(t *testing.T) {
+	srv := New(testDeps(t, sampleSubscription(), nil))
+	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc/link/1/config.json", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"ok":true`) {
+		t.Errorf("unexpected body: %s", rec.Body.String())
+	}
+	if cd := rec.Header().Get("Content-Disposition"); !strings.Contains(cd, "inbound-1-config.json") {
+		t.Errorf("expected per-inbound filename, got Content-Disposition: %q", cd)
+	}
+}
+
+func TestHandleSubscription_HTMLIncludesConnectionLinks(t *testing.T) {
+	deps := testDeps(t, sampleSubscription(), nil)
+	deps.Theme = htmlConnectionsTheme{}
+	srv := New(deps)
+
+	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120")
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "vless://fake") {
+		t.Errorf("expected page to include the connection link, got: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "/sub/tok-abc/link/1/qr.png") {
+		t.Errorf("expected page to include the connection's qr url, got: %s", rec.Body.String())
 	}
 }
 

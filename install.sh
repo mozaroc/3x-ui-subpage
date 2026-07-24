@@ -18,6 +18,7 @@
 # Usage:
 #   sudo bash install.sh [options]
 #   sudo bash install.sh --update [--version <tag>]
+#   sudo bash install.sh --reset-admin [--admin-username <name>] [--admin-password <pw>]
 #   sudo bash install.sh --uninstall [-y]
 #
 # Options:
@@ -31,6 +32,11 @@
 #   --update                   Upgrade an existing install's binary + bundled web/
 #                              assets to --version (default: latest). Leaves nginx,
 #                              the admin account, and every setting untouched.
+#   --reset-admin              Reset the admin account's username/password on an
+#                              existing install (default username: admin, password:
+#                              randomly generated unless --admin-password is given).
+#   --admin-username <name>    Username for --reset-admin (default: admin)
+#   --admin-password <pw>      Password for --reset-admin (default: random)
 #   --uninstall                Remove the service (add -y to skip prompts)
 #   -h, --help                 Show this help
 #
@@ -65,6 +71,7 @@ XUI_API_KEY=""
 SERVER_HOST=""
 UNINSTALL=""
 UPDATE=""
+RESET_ADMIN=""
 ASSUME_YES="n"
 
 WORKDIR=""
@@ -73,6 +80,7 @@ RELEASE_TAG=""
 DOWNLOAD_BIN_NAME=""
 RANDOM_PATH=""
 PUBLIC_URL=""
+ADMIN_USERNAME=""
 ADMIN_PASSWORD=""
 DETECTED_DOMAIN=""
 DETECTED_XUI_PORT=""
@@ -102,6 +110,9 @@ parse_args() {
       --server-host) SERVER_HOST="${2:?--server-host requires an argument}"; shift 2 ;;
       --uninstall) UNINSTALL="1"; shift ;;
       --update) UPDATE="1"; shift ;;
+      --reset-admin) RESET_ADMIN="1"; shift ;;
+      --admin-username) ADMIN_USERNAME="${2:?--admin-username requires an argument}"; shift 2 ;;
+      --admin-password) ADMIN_PASSWORD="${2:?--admin-password requires an argument}"; shift 2 ;;
       -y|--yes) ASSUME_YES="y"; shift ;;
       -h|--help) usage 0 ;;
       *) die "unknown argument: $1 (see --help)" ;;
@@ -113,8 +124,11 @@ parse_args() {
     *) die "--mode must be 'dedicated' or 'panel', got: $MODE" ;;
   esac
 
-  if [[ -n "$UNINSTALL" && -n "$UPDATE" ]]; then
-    die "--uninstall and --update are mutually exclusive"
+  if [[ -n "$UNINSTALL" ]] && { [[ -n "$UPDATE" ]] || [[ -n "$RESET_ADMIN" ]]; }; then
+    die "--uninstall cannot be combined with --update or --reset-admin"
+  fi
+  if [[ -n "$UPDATE" && -n "$RESET_ADMIN" ]]; then
+    die "--update and --reset-admin are mutually exclusive"
   fi
 }
 
@@ -387,8 +401,9 @@ seed_settings() {
 
 create_admin() {
   log "Creating admin account"
-  ADMIN_PASSWORD="$(rand_str 20)"
-  "$BINARY_PATH" -config "$BOOTSTRAP_FILE" -create-admin admin -create-admin-password "$ADMIN_PASSWORD"
+  [[ -n "$ADMIN_USERNAME" ]] || ADMIN_USERNAME="admin"
+  [[ -n "$ADMIN_PASSWORD" ]] || ADMIN_PASSWORD="$(rand_str 20)"
+  "$BINARY_PATH" -config "$BOOTSTRAP_FILE" -create-admin "$ADMIN_USERNAME" -create-admin-password "$ADMIN_PASSWORD"
 }
 
 fix_permissions() {
@@ -636,7 +651,7 @@ print_summary() {
  subscription-service installed (mode: ${MODE})
 =====================================================================
  Admin UI:        https://${DOMAIN}/${RANDOM_PATH}/admin
- Admin username:  admin
+ Admin username:  ${ADMIN_USERNAME}
  Admin password:  ${ADMIN_PASSWORD}
 
  Subscription base URL (give subscribers /sub/<their-subId>):
@@ -711,6 +726,33 @@ do_update() {
 }
 
 # ---------------------------------------------------------------------------
+# reset-admin
+# ---------------------------------------------------------------------------
+
+# do_reset_admin resets the admin account on an existing install — same
+# effect as the binary's own -create-admin/-create-admin-password flags
+# (create-or-overwrite, single account), just without needing to touch the
+# service. Doesn't require a restart: the admin_users table is read at
+# login time, not at startup.
+do_reset_admin() {
+  [[ -x "$BINARY_PATH" ]] || die "no existing installation found at ${BINARY_PATH} — run install.sh without --reset-admin first"
+  [[ -f "$BOOTSTRAP_FILE" ]] || die "no bootstrap config found at ${BOOTSTRAP_FILE} — installation looks incomplete"
+
+  create_admin
+  fix_permissions
+
+  cat <<EOF
+
+=====================================================================
+ Admin account reset
+=====================================================================
+ Username: ${ADMIN_USERNAME}
+ Password: ${ADMIN_PASSWORD}
+=====================================================================
+EOF
+}
+
+# ---------------------------------------------------------------------------
 # uninstall
 # ---------------------------------------------------------------------------
 
@@ -772,6 +814,11 @@ main() {
 
   if [[ -n "$UPDATE" ]]; then
     do_update
+    exit 0
+  fi
+
+  if [[ -n "$RESET_ADMIN" ]]; then
+    do_reset_admin
     exit 0
   fi
 

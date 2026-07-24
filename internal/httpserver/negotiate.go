@@ -39,7 +39,16 @@ func detectFormat(userAgent string) format {
 	ua := strings.ToLower(userAgent)
 
 	switch {
-	case strings.Contains(ua, "mihomo"):
+	// "Clash-Meta" is mihomo's old name (the mihomo project was renamed
+	// from Clash.Meta) -- plenty of real mihomo-core clients still send it
+	// verbatim in their User-Agent for backward compat with providers that
+	// only recognize "clash" (confirmed: Prizrak-Box, a mihomo-only GUI
+	// client, sends "Clash-Meta/Prizrak-Box"). Must be checked before the
+	// generic "clash" substring below, or every one of these gets the
+	// original-Clash-dialect template instead of the mihomo one it
+	// actually needs (missing tun/geodata-mode and other mihomo-only
+	// fields it may rely on).
+	case strings.Contains(ua, "mihomo"), strings.Contains(ua, "clash-meta"), strings.Contains(ua, "clash.meta"), strings.Contains(ua, "clashmeta"):
 		return formatMihomo
 	case strings.Contains(ua, "clash"), strings.Contains(ua, "stash"):
 		return formatClash

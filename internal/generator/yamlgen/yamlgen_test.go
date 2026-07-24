@@ -267,6 +267,86 @@ func TestGroups_DefaultAutoPopulate(t *testing.T) {
 	}
 }
 
+// TestGroups_NoDuplicationAcrossMultipleGroupsOrRebuilds guards against a
+// reported symptom (proxies appearing 2-3x in a generated config): each
+// Build() call parses a brand-new yaml.Node from the cached template
+// string rather than mutating a shared cached tree, and injectGroup
+// appends into each group's OWN "proxies" list independently -- so
+// multiple proxy-groups in one template, and repeated Build() calls
+// against the same cached template, must never accumulate duplicate
+// entries.
+func TestGroups_NoDuplicationAcrossMultipleGroupsOrRebuilds(t *testing.T) {
+	tmpl := `proxy-groups:
+  - name: PROXY
+    type: select
+    proxies:
+      - DIRECT
+  - name: AUTO
+    type: url-test
+`
+	clients := []domain.MatchedClient{vlessRealityClient(), trojanClient()}
+	db := openTestDB(t)
+	insertTemplate(t, db, "clash", "default", tmpl)
+	g := New(db, "clash")
+
+	for i := 0; i < 3; i++ {
+		out, err := g.Build(clients, "default")
+		if err != nil {
+			t.Fatalf("Build (call %d): %v", i, err)
+		}
+		var parsed map[string]any
+		if err := yaml.Unmarshal([]byte(out), &parsed); err != nil {
+			t.Fatalf("parse output (call %d): %v", i, err)
+		}
+
+		proxies, _ := parsed["proxies"].([]any)
+		if len(proxies) != len(clients) {
+			t.Fatalf("call %d: expected %d top-level proxies, got %d: %v", i, len(clients), len(proxies), proxies)
+		}
+
+		for _, groupName := range []string{"PROXY", "AUTO"} {
+			got := groupProxies(t, parsed, groupName)
+			seen := map[string]int{}
+			for _, name := range got {
+				seen[name]++
+			}
+			for name, count := range seen {
+				if count > 1 {
+					t.Errorf("call %d: group %q lists %q %d times, want 1: %v", i, groupName, name, count, got)
+				}
+			}
+		}
+	}
+}
+
+// TestBuild_SameClientAssignedToTwoInboundsProducesTwoDistinctlyNamedProxies
+// documents the intended behavior when a subscriber is assigned to more
+// than one inbound (a supported feature, not a bug): they get one proxy
+// entry per inbound, each disambiguated by combineName so they never
+// collide on the exact same name even though it's the same underlying
+// client -- see tmplctx.combineName's own doc comment.
+func TestBuild_SameClientAssignedToTwoInboundsProducesTwoDistinctlyNamedProxies(t *testing.T) {
+	a := vlessRealityClient()
+	a.Remark = "inbound-A"
+	b := vlessRealityClient()
+	b.Remark = "inbound-B"
+
+	parsed := buildAndParse(t, baseTmpl, []domain.MatchedClient{a, b})
+
+	proxies, _ := parsed["proxies"].([]any)
+	if len(proxies) != 2 {
+		t.Fatalf("expected 2 proxies (one per inbound assignment), got %d: %v", len(proxies), proxies)
+	}
+	names := make(map[string]bool)
+	for _, p := range proxies {
+		m := p.(map[string]any)
+		names[m["name"].(string)] = true
+	}
+	if len(names) != 2 {
+		t.Errorf("expected 2 distinctly-named proxies, got %v", names)
+	}
+}
+
 func TestGroups_IncludeProxiesFalse(t *testing.T) {
 	tmpl := `proxy-groups:
   - name: MANUAL

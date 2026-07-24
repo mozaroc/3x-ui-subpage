@@ -173,6 +173,31 @@ func TestHandleSubscription_MihomoForMihomoUA(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
+	if cd := rec.Header().Get("Content-Disposition"); !strings.Contains(cd, "mihomo.yaml") {
+		t.Errorf("expected mihomo generator to be used, got Content-Disposition: %q", cd)
+	}
+}
+
+// Mihomo was renamed from "Clash.Meta" -- plenty of real mihomo-core
+// clients still send that name verbatim in their User-Agent for backward
+// compat (confirmed: Prizrak-Box, a mihomo-only GUI client, sends
+// "Clash-Meta/Prizrak-Box"). These must get the mihomo template, not the
+// original-Clash-dialect one, or they're missing mihomo-only fields
+// (tun, geodata-mode, ...) they may depend on.
+func TestHandleSubscription_MihomoForClashMetaUA(t *testing.T) {
+	srv := New(testDeps(t, sampleSubscription(), nil))
+	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc", nil)
+	req.Header.Set("User-Agent", "Clash-Meta/Prizrak-Box")
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if cd := rec.Header().Get("Content-Disposition"); !strings.Contains(cd, "mihomo.yaml") {
+		t.Errorf("expected mihomo generator for a Clash-Meta UA, got Content-Disposition: %q", cd)
+	}
 }
 
 // The real Happ app requests and imports the same base64 share-link

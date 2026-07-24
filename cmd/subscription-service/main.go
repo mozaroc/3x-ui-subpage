@@ -33,6 +33,7 @@ import (
 	"github.com/irazin/3x-ui-subpage/internal/importer"
 	"github.com/irazin/3x-ui-subpage/internal/logging"
 	"github.com/irazin/3x-ui-subpage/internal/resolver"
+	"github.com/irazin/3x-ui-subpage/internal/routing"
 	"github.com/irazin/3x-ui-subpage/internal/store"
 	"github.com/irazin/3x-ui-subpage/internal/sync"
 	"github.com/irazin/3x-ui-subpage/internal/theme"
@@ -128,6 +129,7 @@ func main() {
 		ThemeSlug:   cfg.Theme.Active,
 		Apps:        apps.New(db),
 		Assignments: assignment.New(db),
+		Routing:     routing.New(db),
 		QRDefaults:  cfg.QR,
 		PublicURL:   cfg.Subscription.PublicURL,
 		Support:     cfg.Support,

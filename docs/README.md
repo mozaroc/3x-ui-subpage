@@ -6,8 +6,9 @@ changes, no direct database access on the panel side. Single native binary,
 no Docker, no runtime dependencies beyond the OS.
 
 All admin-editable content (settings, app catalog, themes, generator
-templates, routing rules, per-user template assignments, and user accounts
-themselves) lives in one SQLite database. The binary reads only a tiny
+templates, per-user template assignments, per-user Happ/Incy routing
+profiles, and user accounts themselves) lives in one SQLite database. The
+binary reads only a tiny
 bootstrap file to find that database. This service is the primary place to
 manage subscribers day to day — creating/editing/suspending users, resetting
 traffic, assigning inbounds — with every change synced out to the connected
@@ -138,19 +139,20 @@ if you want the `-import` step above to have something to seed from.)
 
 `/admin` — single admin account (bcrypt password, server-side sessions,
 CSRF-protected forms). Covers settings, applications, themes (metadata +
-every file), generator templates (all formats/profiles/protocols),
-routing rules, per-subscriber template assignments, and centralized user
-management (with synchronization status monitoring). See
-[docs/CONFIGURATION.md](CONFIGURATION.md).
+every file), generator templates (all formats/profiles/protocols), and
+centralized user management (per-subscriber template assignments,
+per-subscriber Happ/Incy routing profiles, synchronization status
+monitoring). See [docs/CONFIGURATION.md](CONFIGURATION.md).
 
 ## Phase status
 
 Phases 1-5 are complete: 3x-ui API client, subscriber resolution, Xray
 share-link retrieval (3x-ui's own canonical links, fetched verbatim) + full
 config generation, Clash/Mihomo YAML generation,
-Happ/Incy config generation with an admin-editable routing-rule engine
-(GEOIP/geosite/domains/regex/CIDR/process/DNS/custom rules), HTML theme
-engine, JSON-derived application catalog, QR generation, per-subscriber
+Happ/Incy config generation, per-subscriber Happ/Incy Routing Profile
+configuration (delivered via response headers, per Happ's own Routing
+Generator), HTML theme engine, JSON-derived application catalog, QR
+generation, per-subscriber
 template profile assignment, and centralized user management with
 automatic 3x-ui synchronization (retries, conflict self-healing, status
 monitoring) — all backed by SQLite with hot reload — plus a full admin web

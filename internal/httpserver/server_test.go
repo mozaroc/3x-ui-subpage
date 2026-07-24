@@ -16,6 +16,7 @@ import (
 	"github.com/irazin/3x-ui-subpage/internal/domain"
 	"github.com/irazin/3x-ui-subpage/internal/generator/tmplctx"
 	"github.com/irazin/3x-ui-subpage/internal/resolver"
+	"github.com/irazin/3x-ui-subpage/internal/routing"
 )
 
 // sampleLink is a valid, parseable vless:// link used as sampleSubscription's
@@ -114,6 +115,21 @@ func (f fakeAssignments) Resolve(subID, format string) (string, error) {
 	return "default", nil
 }
 
+// fakeRouting returns a fixed enabled/profile pair for every subID,
+// disabled by default (matching "no row" behavior of the real Store).
+type fakeRouting struct {
+	enabled bool
+	profile routing.Profile
+	err     error
+}
+
+func (f fakeRouting) Get(subID string) (bool, routing.Profile, error) {
+	if f.err != nil {
+		return false, routing.Profile{}, f.err
+	}
+	return f.enabled, f.profile, nil
+}
+
 func testDeps(t *testing.T, sub domain.Subscription, resolveErr error) Deps {
 	t.Helper()
 	return Deps{
@@ -128,6 +144,7 @@ func testDeps(t *testing.T, sub domain.Subscription, resolveErr error) Deps {
 		ThemeSlug:   "default",
 		Apps:        fakeApps{apps: []apps.App{{Name: "Test App", Deeplink: "test://{subscription}"}}},
 		Assignments: fakeAssignments{},
+		Routing:     fakeRouting{},
 		QRDefaults:  config.QRConfig{Size: 64, Margin: 2, Foreground: "#000000", Background: "#FFFFFF"},
 		PublicURL:   "https://sub.example.com",
 		Support:     config.SupportConfig{Telegram: "https://t.me/example"},
@@ -289,6 +306,88 @@ func TestHandleIncy_ExplicitRoute(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"incy":true`) {
 		t.Errorf("expected incy body, got: %s", rec.Body.String())
+	}
+}
+
+func TestRoutingHeaders_DisabledOnlySetsRoutingEnableFalse(t *testing.T) {
+	srv := New(testDeps(t, sampleSubscription(), nil))
+	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc/happ", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Routing-Enable"); got != "false" {
+		t.Errorf("expected Routing-Enable: false, got %q", got)
+	}
+	if got := rec.Header().Get("Routing"); got != "" {
+		t.Errorf("expected no Routing header when disabled, got %q", got)
+	}
+}
+
+func TestRoutingHeaders_HappGetsHappScheme(t *testing.T) {
+	deps := testDeps(t, sampleSubscription(), nil)
+	deps.Routing = fakeRouting{enabled: true, profile: routing.Profile{RouteOrder: "Proxy>Direct>Block"}}
+	srv := New(deps)
+
+	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc/happ", nil)
+	rec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Routing-Enable"); got != "true" {
+		t.Fatalf("expected Routing-Enable: true, got %q", got)
+	}
+	link := rec.Header().Get("Routing")
+	if !strings.HasPrefix(link, "happ://routing/onadd/") {
+		t.Errorf("expected a happ:// routing deep link, got %q", link)
+	}
+}
+
+func TestRoutingHeaders_IncyGetsIncyScheme(t *testing.T) {
+	deps := testDeps(t, sampleSubscription(), nil)
+	deps.Routing = fakeRouting{enabled: true, profile: routing.Profile{RouteOrder: "Proxy>Direct>Block"}}
+	srv := New(deps)
+
+	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc/incy", nil)
+	rec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
+
+	link := rec.Header().Get("Routing")
+	if !strings.HasPrefix(link, "incy://routing/onadd/") {
+		t.Errorf("expected an incy:// routing deep link, got %q", link)
+	}
+}
+
+func TestRoutingHeaders_XrayLinksPathGetsHappScheme(t *testing.T) {
+	deps := testDeps(t, sampleSubscription(), nil)
+	deps.Routing = fakeRouting{enabled: true, profile: routing.Profile{RouteOrder: "Proxy>Direct>Block"}}
+	srv := New(deps)
+
+	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc/xray", nil)
+	rec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
+
+	link := rec.Header().Get("Routing")
+	if !strings.HasPrefix(link, "happ://routing/onadd/") {
+		t.Errorf("expected a happ:// routing deep link on the xray-links path (where the real Happ app lands), got %q", link)
+	}
+}
+
+func TestRoutingHeaders_NeverSetOnXrayJSONClashMihomo(t *testing.T) {
+	deps := testDeps(t, sampleSubscription(), nil)
+	deps.Routing = fakeRouting{enabled: true, profile: routing.Profile{RouteOrder: "Proxy>Direct>Block"}}
+	srv := New(deps)
+
+	for _, path := range []string{"/sub/tok-abc/xray.json", "/sub/tok-abc/clash", "/sub/tok-abc/mihomo"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		srv.Router().ServeHTTP(rec, req)
+
+		if got := rec.Header().Get("Routing-Enable"); got != "" {
+			t.Errorf("%s: expected no Routing-Enable header, got %q", path, got)
+		}
+		if got := rec.Header().Get("Routing"); got != "" {
+			t.Errorf("%s: expected no Routing header, got %q", path, got)
+		}
 	}
 }
 

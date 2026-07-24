@@ -1,38 +1,54 @@
-// Package routing manages administrator-editable routing rules (table
-// "routing_rules") — GEOIP/geosite/domain/CIDR/process/protocol/DNS/custom
-// entries that per-profile config-generator templates (Happ, Incy, and any
-// future format) can render into their own client's routing syntax. Go owns
-// the structured rule data; the template owns the output bytes, same
-// division of labor as every other generator in this project.
+// Package routing implements per-subscriber Happ/Incy "Routing Profile"
+// configuration — the client apps' own native traffic-splitting feature
+// (GlobalProxy/RouteOrder/DomainStrategy/DNS settings/Direct-Proxy-Block
+// site+IP lists/FakeDNS/UseChunkFiles), documented at routing.happ.su and
+// docs.incy.cc/en/routing. This is unrelated to Xray-core routing rules
+// (GEOIP/domain/CIDR baked into a generated config body) — it's delivered
+// to the app via the Routing/Routing-Enable HTTP response headers on the
+// subscription request, mirroring upstream 3x-ui's own per-panel
+// implementation but scoped per-subscriber here. See happjson.go for the
+// wire encoding.
 package routing
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 )
 
-// DefaultProfile is the profile ForProfile falls back to when the
-// requested profile has no rules of its own.
-const DefaultProfile = "default"
+// Profile is one subscriber's Happ/Incy Routing Profile configuration.
+type Profile struct {
+	GlobalProxy    bool
+	RouteOrder     string // one of the 6 Block/Proxy/Direct permutations
+	DomainStrategy string // AsIs / IPIfNonMatch / IPOnDemand
 
-// ErrNotFound is returned by Get for a missing rule id.
-var ErrNotFound = errors.New("routing: not found")
+	RemoteDNSType   string // DoH / DoU
+	RemoteDNSDomain string
+	RemoteDNSIP     string
 
-// Rule is one routing_rules row.
-type Rule struct {
-	ID        int64
-	Profile   string
-	SortOrder int
-	Type      string
-	Value     string
-	Outbound  string
-	Enabled   bool
-	UpdatedAt int64
+	DomesticDNSType   string // DoH / DoU
+	DomesticDNSDomain string
+	DomesticDNSIP     string
+
+	DNSHosts map[string]string
+
+	GeoIPURL   string
+	GeoSiteURL string
+
+	DirectSites []string
+	DirectIP    []string
+	ProxySites  []string
+	ProxyIP     []string
+	BlockSites  []string
+	BlockIP     []string
+
+	FakeDNS       bool
+	UseChunkFiles bool
 }
 
-// Store wraps the "routing_rules" table.
+// Store wraps the "user_routing" table (one row per sub_id).
 type Store struct {
 	db *sql.DB
 }
@@ -42,129 +58,52 @@ func New(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
-// ForProfile returns the enabled rules for profile, ordered by sort_order,
-// falling back to DefaultProfile if profile has none of its own.
-func (s *Store) ForProfile(profile string) ([]Rule, error) {
-	rules, err := s.queryProfile(profile)
-	if err != nil {
-		return nil, err
-	}
-	if len(rules) > 0 || profile == DefaultProfile {
-		return rules, nil
-	}
-	return s.queryProfile(DefaultProfile)
-}
-
-func (s *Store) queryProfile(profile string) ([]Rule, error) {
-	rows, err := s.db.Query(`
-		SELECT id, profile, sort_order, type, value, outbound, enabled, updated_at
-		FROM routing_rules WHERE profile = ? AND enabled = 1 ORDER BY sort_order, id`, profile)
-	if err != nil {
-		return nil, fmt.Errorf("routing: query profile %q: %w", profile, err)
-	}
-	defer rows.Close()
-	return scanRules(rows)
-}
-
-// List returns every rule, ordered for stable admin display.
-func (s *Store) List() ([]Rule, error) {
-	rows, err := s.db.Query(`
-		SELECT id, profile, sort_order, type, value, outbound, enabled, updated_at
-		FROM routing_rules ORDER BY profile, sort_order, id`)
-	if err != nil {
-		return nil, fmt.Errorf("routing: list: %w", err)
-	}
-	defer rows.Close()
-	return scanRules(rows)
-}
-
-func scanRules(rows *sql.Rows) ([]Rule, error) {
-	out := make([]Rule, 0)
-	for rows.Next() {
-		var r Rule
-		var enabled int
-		if err := rows.Scan(&r.ID, &r.Profile, &r.SortOrder, &r.Type, &r.Value, &r.Outbound, &enabled, &r.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("routing: scan: %w", err)
+// Get returns subID's routing profile. A missing row is not an error --
+// it just means routing has never been configured for this subscriber,
+// reported as enabled=false with a zero-value Profile.
+func (s *Store) Get(subID string) (enabled bool, profile Profile, err error) {
+	var enabledInt int
+	var config string
+	err = s.db.QueryRow(`SELECT enabled, config FROM user_routing WHERE sub_id = ?`, subID).Scan(&enabledInt, &config)
+	switch {
+	case err == nil:
+		if jsonErr := json.Unmarshal([]byte(config), &profile); jsonErr != nil {
+			return false, Profile{}, fmt.Errorf("routing: decode profile for %s: %w", subID, jsonErr)
 		}
-		r.Enabled = enabled != 0
-		out = append(out, r)
+		return enabledInt != 0, profile, nil
+	case errors.Is(err, sql.ErrNoRows):
+		return false, Profile{}, nil
+	default:
+		return false, Profile{}, fmt.Errorf("routing: query %s: %w", subID, err)
 	}
-	return out, rows.Err()
 }
 
-// Get returns one rule by id, or ErrNotFound.
-func (s *Store) Get(id int64) (Rule, error) {
-	var r Rule
-	var enabled int
-	err := s.db.QueryRow(`
-		SELECT id, profile, sort_order, type, value, outbound, enabled, updated_at
-		FROM routing_rules WHERE id = ?`, id,
-	).Scan(&r.ID, &r.Profile, &r.SortOrder, &r.Type, &r.Value, &r.Outbound, &enabled, &r.UpdatedAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Rule{}, ErrNotFound
-	}
+// Set creates or overwrites subID's routing profile.
+func (s *Store) Set(subID string, enabled bool, profile Profile) error {
+	config, err := json.Marshal(profile)
 	if err != nil {
-		return Rule{}, fmt.Errorf("routing: get %d: %w", id, err)
+		return fmt.Errorf("routing: encode profile for %s: %w", subID, err)
 	}
-	r.Enabled = enabled != 0
-	return r, nil
-}
 
-// Create inserts a new rule and returns its id.
-func (s *Store) Create(r Rule) (int64, error) {
-	res, err := s.db.Exec(`
-		INSERT INTO routing_rules (profile, sort_order, type, value, outbound, enabled, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		r.Profile, r.SortOrder, r.Type, r.Value, r.Outbound, boolToInt(r.Enabled), time.Now().UnixNano())
-	if err != nil {
-		return 0, fmt.Errorf("routing: create: %w", err)
+	enabledInt := 0
+	if enabled {
+		enabledInt = 1
 	}
-	return res.LastInsertId()
-}
 
-// Update overwrites an existing rule.
-func (s *Store) Update(id int64, r Rule) error {
-	_, err := s.db.Exec(`
-		UPDATE routing_rules
-		SET profile = ?, sort_order = ?, type = ?, value = ?, outbound = ?, enabled = ?, updated_at = ?
-		WHERE id = ?`,
-		r.Profile, r.SortOrder, r.Type, r.Value, r.Outbound, boolToInt(r.Enabled), time.Now().UnixNano(), id)
+	_, err = s.db.Exec(`
+		INSERT INTO user_routing (sub_id, enabled, config, updated_at) VALUES (?, ?, ?, ?)
+		ON CONFLICT(sub_id) DO UPDATE SET enabled = excluded.enabled, config = excluded.config, updated_at = excluded.updated_at`,
+		subID, enabledInt, string(config), time.Now().UnixNano())
 	if err != nil {
-		return fmt.Errorf("routing: update %d: %w", id, err)
+		return fmt.Errorf("routing: set %s: %w", subID, err)
 	}
 	return nil
 }
 
-// Delete removes a rule by id.
-func (s *Store) Delete(id int64) error {
-	if _, err := s.db.Exec(`DELETE FROM routing_rules WHERE id = ?`, id); err != nil {
-		return fmt.Errorf("routing: delete %d: %w", id, err)
+// DeleteAll removes subID's routing profile row, if any.
+func (s *Store) DeleteAll(subID string) error {
+	if _, err := s.db.Exec(`DELETE FROM user_routing WHERE sub_id = ?`, subID); err != nil {
+		return fmt.Errorf("routing: delete %s: %w", subID, err)
 	}
 	return nil
-}
-
-// ListProfiles returns every distinct profile with at least one rule.
-func (s *Store) ListProfiles() ([]string, error) {
-	rows, err := s.db.Query(`SELECT DISTINCT profile FROM routing_rules ORDER BY profile`)
-	if err != nil {
-		return nil, fmt.Errorf("routing: list profiles: %w", err)
-	}
-	defer rows.Close()
-
-	out := make([]string, 0)
-	for rows.Next() {
-		var p string
-		if err := rows.Scan(&p); err != nil {
-			return nil, fmt.Errorf("routing: scan profile: %w", err)
-		}
-		out = append(out, p)
-	}
-	return out, rows.Err()
-}
-
-func boolToInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }

@@ -123,13 +123,6 @@ func (s *Server) Router() http.Handler {
 		r.With(s.verifyCSRF).Post("/templates/{format}/{profile}/{protocol}", s.handleTemplateSave)
 		r.With(s.verifyCSRF).Post("/templates/{format}/{profile}/{protocol}/delete", s.handleTemplateDelete)
 
-		r.Get("/routing", s.handleRoutingList)
-		r.Get("/routing/new", s.handleRoutingForm)
-		r.With(s.verifyCSRF).Post("/routing", s.handleRoutingCreate)
-		r.Get("/routing/{id}/edit", s.handleRoutingForm)
-		r.With(s.verifyCSRF).Post("/routing/{id}", s.handleRoutingUpdate)
-		r.With(s.verifyCSRF).Post("/routing/{id}/delete", s.handleRoutingDelete)
-
 		r.Get("/users", s.handleUsersList)
 		r.Get("/users/new", s.handleUserForm)
 		r.With(s.verifyCSRF).Post("/users", s.handleUserCreate)

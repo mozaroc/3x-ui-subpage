@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/irazin/3x-ui-subpage/internal/assignment"
 	"github.com/irazin/3x-ui-subpage/internal/connlink"
 	"github.com/irazin/3x-ui-subpage/internal/generator/tmplctx"
+	"github.com/irazin/3x-ui-subpage/internal/routing"
 	"github.com/irazin/3x-ui-subpage/internal/sync"
 	"github.com/irazin/3x-ui-subpage/internal/users"
 	"github.com/irazin/3x-ui-subpage/internal/xui"
@@ -185,6 +187,160 @@ func (s *Server) applyAssignmentsFromForm(r *http.Request, subID string) error {
 	return nil
 }
 
+// routeOrderOptions/domainStrategyOptions/dnsTypeOptions are the Happ
+// Routing Generator's own enum choices (routing.happ.su / docs.incy.cc).
+var (
+	routeOrderOptions = []string{
+		"Block>Proxy>Direct", "Block>Direct>Proxy",
+		"Proxy>Direct>Block", "Proxy>Block>Direct",
+		"Direct>Proxy>Block", "Direct>Block>Proxy",
+	}
+	domainStrategyOptions = []string{"AsIs", "IPIfNonMatch", "IPOnDemand"}
+	dnsTypeOptions        = []string{"", "DoH", "DoU"}
+)
+
+// routingFormView is the per-user Happ/Incy Routing Profile section,
+// ready to render on the User create/edit page.
+type routingFormView struct {
+	Enabled bool
+
+	GlobalProxy    bool
+	RouteOrder     string
+	DomainStrategy string
+
+	RemoteDNSType     string
+	RemoteDNSDomain   string
+	RemoteDNSIP       string
+	DomesticDNSType   string
+	DomesticDNSDomain string
+	DomesticDNSIP     string
+	DNSHosts          string // one "domain ip" pair per line
+
+	GeoIPURL   string
+	GeoSiteURL string
+
+	DirectSites string // one entry per line
+	DirectIP    string
+	ProxySites  string
+	ProxyIP     string
+	BlockSites  string
+	BlockIP     string
+
+	FakeDNS       bool
+	UseChunkFiles bool
+
+	RouteOrderOptions     []string
+	DomainStrategyOptions []string
+	DNSTypeOptions        []string
+
+	Preview string
+}
+
+func linesToSlice(s string) []string {
+	var out []string
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+func sliceToLines(s []string) string {
+	return strings.Join(s, "\n")
+}
+
+func hostsToText(m map[string]string) string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	lines := make([]string, 0, len(keys))
+	for _, k := range keys {
+		lines = append(lines, k+" "+m[k])
+	}
+	return strings.Join(lines, "\n")
+}
+
+func textToHosts(s string) map[string]string {
+	out := map[string]string{}
+	for _, line := range strings.Split(s, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		out[fields[0]] = fields[1]
+	}
+	return out
+}
+
+// routingFormViewFor builds the render-ready view for enabled/profile,
+// including a live JSON preview of the exact wire payload (named after
+// previewName, typically the subscriber's username).
+func routingFormViewFor(enabled bool, p routing.Profile, previewName string) routingFormView {
+	preview, err := p.PreviewJSON(previewName)
+	if err != nil {
+		preview = ""
+	}
+	return routingFormView{
+		Enabled:               enabled,
+		GlobalProxy:           p.GlobalProxy,
+		RouteOrder:            p.RouteOrder,
+		DomainStrategy:        p.DomainStrategy,
+		RemoteDNSType:         p.RemoteDNSType,
+		RemoteDNSDomain:       p.RemoteDNSDomain,
+		RemoteDNSIP:           p.RemoteDNSIP,
+		DomesticDNSType:       p.DomesticDNSType,
+		DomesticDNSDomain:     p.DomesticDNSDomain,
+		DomesticDNSIP:         p.DomesticDNSIP,
+		DNSHosts:              hostsToText(p.DNSHosts),
+		GeoIPURL:              p.GeoIPURL,
+		GeoSiteURL:            p.GeoSiteURL,
+		DirectSites:           sliceToLines(p.DirectSites),
+		DirectIP:              sliceToLines(p.DirectIP),
+		ProxySites:            sliceToLines(p.ProxySites),
+		ProxyIP:               sliceToLines(p.ProxyIP),
+		BlockSites:            sliceToLines(p.BlockSites),
+		BlockIP:               sliceToLines(p.BlockIP),
+		FakeDNS:               p.FakeDNS,
+		UseChunkFiles:         p.UseChunkFiles,
+		RouteOrderOptions:     routeOrderOptions,
+		DomainStrategyOptions: domainStrategyOptions,
+		DNSTypeOptions:        dnsTypeOptions,
+		Preview:               preview,
+	}
+}
+
+// routingProfileFromForm parses the Routing card's fields.
+func routingProfileFromForm(r *http.Request) (bool, routing.Profile) {
+	enabled := r.FormValue("routing_enabled") != ""
+	profile := routing.Profile{
+		GlobalProxy:       r.FormValue("routing_global_proxy") != "",
+		RouteOrder:        r.FormValue("routing_route_order"),
+		DomainStrategy:    r.FormValue("routing_domain_strategy"),
+		RemoteDNSType:     r.FormValue("routing_remote_dns_type"),
+		RemoteDNSDomain:   strings.TrimSpace(r.FormValue("routing_remote_dns_domain")),
+		RemoteDNSIP:       strings.TrimSpace(r.FormValue("routing_remote_dns_ip")),
+		DomesticDNSType:   r.FormValue("routing_domestic_dns_type"),
+		DomesticDNSDomain: strings.TrimSpace(r.FormValue("routing_domestic_dns_domain")),
+		DomesticDNSIP:     strings.TrimSpace(r.FormValue("routing_domestic_dns_ip")),
+		DNSHosts:          textToHosts(r.FormValue("routing_dns_hosts")),
+		GeoIPURL:          strings.TrimSpace(r.FormValue("routing_geoip_url")),
+		GeoSiteURL:        strings.TrimSpace(r.FormValue("routing_geosite_url")),
+		DirectSites:       linesToSlice(r.FormValue("routing_direct_sites")),
+		DirectIP:          linesToSlice(r.FormValue("routing_direct_ip")),
+		ProxySites:        linesToSlice(r.FormValue("routing_proxy_sites")),
+		ProxyIP:           linesToSlice(r.FormValue("routing_proxy_ip")),
+		BlockSites:        linesToSlice(r.FormValue("routing_block_sites")),
+		BlockIP:           linesToSlice(r.FormValue("routing_block_ip")),
+		FakeDNS:           r.FormValue("routing_fake_dns") != "",
+		UseChunkFiles:     r.FormValue("routing_use_chunk_files") != "",
+	}
+	return enabled, profile
+}
+
 type userRow struct {
 	ID           int64
 	Username     string
@@ -307,6 +463,7 @@ func (s *Server) handleUsersList(w http.ResponseWriter, r *http.Request) {
 type userFormPageData struct {
 	IsNew       bool
 	ClientTypes []clientTypeOption
+	Routing     routingFormView
 	Error       string
 }
 
@@ -322,7 +479,7 @@ func (s *Server) handleUserForm(w http.ResponseWriter, r *http.Request) {
 
 	_ = render(w, "page-user-form", PageData{
 		Username: sess.Username, CSRFToken: sess.CSRFToken,
-		Data: userFormPageData{IsNew: true, ClientTypes: clientTypes},
+		Data: userFormPageData{IsNew: true, ClientTypes: clientTypes, Routing: routingFormViewFor(false, routing.Profile{}, "")},
 	})
 }
 
@@ -347,6 +504,10 @@ func (s *Server) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.applyAssignmentsFromForm(r, u.SubID); err != nil {
 		s.logger.Error("admin: set template assignments failed", "id", id, "err", err)
+	}
+	routingEnabled, routingProfile := routingProfileFromForm(r)
+	if err := s.routing.Set(u.SubID, routingEnabled, routingProfile); err != nil {
+		s.logger.Error("admin: set routing profile failed", "id", id, "err", err)
 	}
 
 	http.Redirect(w, r, fmt.Sprintf("/admin/users/%d", id), http.StatusFound)
@@ -382,6 +543,7 @@ type userDetailPageData struct {
 	QRPngURL        string
 	Inbounds        []inboundOption
 	ClientTypes     []clientTypeOption
+	Routing         routingFormView
 	Connections     []connlink.View
 	SyncJobs        []syncJobRow
 	Error           string
@@ -469,6 +631,13 @@ func (s *Server) handleUserDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	routingEnabled, routingProfile, err := s.routing.Get(u.SubID)
+	if err != nil {
+		s.logger.Error("admin: load routing profile failed", "id", id, "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
 	// Direct connection links are the panel's own canonical share links,
 	// verbatim -- no profile, no generation, just parsed for display.
 	var connections []connlink.View
@@ -486,7 +655,9 @@ func (s *Server) handleUserDetail(w http.ResponseWriter, r *http.Request) {
 			SyncStatus:      syncStatus,
 			SubscriptionURL: fmt.Sprintf("%s/sub/%s", strings.TrimSuffix(s.publicURL, "/"), u.SubID),
 			QRPngURL:        fmt.Sprintf("/sub/%s/qr.png", u.SubID),
-			Inbounds:        options, ClientTypes: clientTypes, Connections: connections, SyncJobs: jobRows,
+			Inbounds:        options, ClientTypes: clientTypes,
+			Routing:     routingFormViewFor(routingEnabled, routingProfile, u.Username),
+			Connections: connections, SyncJobs: jobRows,
 		},
 	})
 }
@@ -534,9 +705,16 @@ func (s *Server) handleUserUpdate(w http.ResponseWriter, r *http.Request) {
 		if err := s.assignments.DeleteAll(oldSubID); err != nil {
 			s.logger.Error("admin: clean up template assignments for old sub_id failed", "id", id, "err", err)
 		}
+		if err := s.routing.DeleteAll(oldSubID); err != nil {
+			s.logger.Error("admin: clean up routing profile for old sub_id failed", "id", id, "err", err)
+		}
 	}
 	if err := s.applyAssignmentsFromForm(r, u.SubID); err != nil {
 		s.logger.Error("admin: set template assignments failed", "id", id, "err", err)
+	}
+	routingEnabled, routingProfile := routingProfileFromForm(r)
+	if err := s.routing.Set(u.SubID, routingEnabled, routingProfile); err != nil {
+		s.logger.Error("admin: set routing profile failed", "id", id, "err", err)
 	}
 
 	if updated, err := s.users.Get(id); err != nil {
@@ -585,6 +763,9 @@ func (s *Server) handleUserDelete(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.assignments.DeleteAll(u.SubID); err != nil {
 		s.logger.Error("admin: clean up template assignments on delete failed", "id", id, "err", err)
+	}
+	if err := s.routing.DeleteAll(u.SubID); err != nil {
+		s.logger.Error("admin: clean up routing profile on delete failed", "id", id, "err", err)
 	}
 
 	if err := s.users.Delete(id); err != nil && !errors.Is(err, users.ErrNotFound) {

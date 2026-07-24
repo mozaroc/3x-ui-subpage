@@ -85,17 +85,17 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at INTEGER NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS routing_rules (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    profile    TEXT NOT NULL,
-    sort_order INTEGER NOT NULL DEFAULT 0,
-    type       TEXT NOT NULL,
-    value      TEXT NOT NULL,
-    outbound   TEXT NOT NULL DEFAULT '',
-    enabled    INTEGER NOT NULL DEFAULT 1,
+-- Per-subscriber Happ/Incy "Routing Profile" (their own native app-level
+-- traffic-splitting feature -- unrelated to Xray-core routing rules).
+-- config is the JSON-encoded internal/routing.Profile; delivered to the
+-- client via the Routing/Routing-Enable response headers on the
+-- subscription request, never stored in the generated config body.
+CREATE TABLE IF NOT EXISTS user_routing (
+    sub_id     TEXT PRIMARY KEY,
+    enabled    INTEGER NOT NULL DEFAULT 0,
+    config     TEXT NOT NULL DEFAULT '{}',
     updated_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_routing_rules_profile ON routing_rules(profile, sort_order);
 
 CREATE TABLE IF NOT EXISTS users (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,

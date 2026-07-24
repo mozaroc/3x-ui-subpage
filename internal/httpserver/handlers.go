@@ -85,6 +85,34 @@ func setSubscriptionUserinfo(w http.ResponseWriter, sub domain.Subscription) {
 	))
 }
 
+// writeRoutingHeaders sets the Routing-Enable / Routing response headers
+// Happ/Incy read to auto-install a subscriber's Routing Profile -- mirrors
+// upstream 3x-ui's own ApplyCommonHeaders, scoped per-subscriber. scheme is
+// "happ" or "incy". When routing is disabled (or never configured), only
+// Routing-Enable: false is set -- no Routing header at all, so the client
+// behaves exactly as it did before this feature existed.
+func (s *Server) writeRoutingHeaders(w http.ResponseWriter, sub domain.Subscription, scheme string) {
+	enabled, profile, err := s.deps.Routing.Get(sub.SubID)
+	if err != nil {
+		s.deps.Logger.Warn("resolve routing profile failed", "sub_id", sub.SubID, "err", err)
+		return
+	}
+	w.Header().Set("Routing-Enable", strconv.FormatBool(enabled))
+	if !enabled {
+		return
+	}
+	name := sub.Username
+	if name == "" {
+		name = sub.SubID
+	}
+	link, err := profile.EncodeDeepLink(scheme, "onadd", name)
+	if err != nil {
+		s.deps.Logger.Warn("encode routing deep link failed", "sub_id", sub.SubID, "err", err)
+		return
+	}
+	w.Header().Set("Routing", link)
+}
+
 func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	sub, ok := s.resolveOrFail(w, r)
 	if !ok {
@@ -158,6 +186,7 @@ func (s *Server) handleHapp(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	s.writeRoutingHeaders(w, sub, "happ")
 	s.writeRaw(w, sub, s.deps.Happ, "happ", "happ.json")
 }
 
@@ -166,13 +195,18 @@ func (s *Server) handleIncy(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	s.writeRoutingHeaders(w, sub, "incy")
 	s.writeRaw(w, sub, s.deps.Incy, "incy", "incy.json")
 }
 
 // writeXrayLinks writes 3x-ui's own canonical share links, verbatim,
 // joined and base64-encoded exactly like the classic subscription body --
-// no profile, no template, no reconstruction.
+// no profile, no template, no reconstruction. This is also exactly where
+// the real Happ app lands (it isn't routed to the custom "happ" JSON
+// format -- see detectFormat's doc comment), so it gets the "happ" routing
+// headers too.
 func (s *Server) writeXrayLinks(w http.ResponseWriter, sub domain.Subscription) {
+	s.writeRoutingHeaders(w, sub, "happ")
 	body := base64.StdEncoding.EncodeToString([]byte(strings.Join(sub.Links, "\n")))
 	setSubscriptionUserinfo(w, sub)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")

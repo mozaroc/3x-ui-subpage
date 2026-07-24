@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/irazin/3x-ui-subpage/internal/domain"
+	"github.com/irazin/3x-ui-subpage/internal/routing"
 	"github.com/irazin/3x-ui-subpage/internal/sync"
 	"github.com/irazin/3x-ui-subpage/internal/users"
 	"github.com/irazin/3x-ui-subpage/internal/xui"
@@ -231,6 +232,161 @@ func TestUsers_Delete_CleansUpTemplateAssignments(t *testing.T) {
 		if profile != "default" {
 			t.Errorf("expected assignments cleaned up after delete, still have %s=%q", clientType, profile)
 		}
+	}
+}
+
+func TestUsers_Create_SetsRoutingProfile(t *testing.T) {
+	s, _ := newTestServer(t)
+	cookie := loginAndGetCookie(t, s)
+	token := csrfTokenFor(t, s, cookie)
+
+	form := url.Values{
+		"username": {"heidi2"}, "sub_id": {"sub-heidi2"},
+		"routing_enabled":      {"1"},
+		"routing_global_proxy": {"1"},
+		"routing_route_order":  {"Proxy>Direct>Block"},
+		"routing_direct_sites": {"example.com\nexample.org"},
+		"routing_block_ip":     {"1.2.3.0/24"},
+		"csrf_token":           {token},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("create user: expected 302, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	enabled, profile, err := s.routing.Get("sub-heidi2")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if !enabled {
+		t.Error("expected routing enabled")
+	}
+	if !profile.GlobalProxy || profile.RouteOrder != "Proxy>Direct>Block" {
+		t.Errorf("unexpected profile: %+v", profile)
+	}
+	if len(profile.DirectSites) != 2 || profile.DirectSites[0] != "example.com" || profile.DirectSites[1] != "example.org" {
+		t.Errorf("unexpected DirectSites: %+v", profile.DirectSites)
+	}
+	if len(profile.BlockIP) != 1 || profile.BlockIP[0] != "1.2.3.0/24" {
+		t.Errorf("unexpected BlockIP: %+v", profile.BlockIP)
+	}
+}
+
+func TestUsers_Create_WithoutRoutingFieldsDefaultsDisabled(t *testing.T) {
+	s, _ := newTestServer(t)
+	cookie := loginAndGetCookie(t, s)
+	token := csrfTokenFor(t, s, cookie)
+
+	createUserViaHandler(t, s, cookie, token, "ivan", "sub-ivan")
+
+	enabled, _, err := s.routing.Get("sub-ivan")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if enabled {
+		t.Error("expected routing disabled by default")
+	}
+}
+
+func TestUsers_Update_MovesRoutingProfileWhenSubIDChanges(t *testing.T) {
+	s, _ := newTestServer(t)
+	cookie := loginAndGetCookie(t, s)
+	token := csrfTokenFor(t, s, cookie)
+
+	id := createUserViaHandler(t, s, cookie, token, "judy", "sub-judy-old")
+	if err := s.routing.Set("sub-judy-old", true, routing.Profile{RouteOrder: "Proxy>Direct>Block"}); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	form := url.Values{
+		"username": {"judy"}, "sub_id": {"sub-judy-new"},
+		"routing_enabled":     {"1"},
+		"routing_route_order": {"Proxy>Direct>Block"},
+		"csrf_token":          {token},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/users/"+itoa(id), strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("update: expected 302, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	oldEnabled, _, err := s.routing.Get("sub-judy-old")
+	if err != nil {
+		t.Fatalf("Get(old): %v", err)
+	}
+	if oldEnabled {
+		t.Error("expected old sub_id's routing profile cleaned up")
+	}
+
+	newEnabled, newProfile, err := s.routing.Get("sub-judy-new")
+	if err != nil {
+		t.Fatalf("Get(new): %v", err)
+	}
+	if !newEnabled || newProfile.RouteOrder != "Proxy>Direct>Block" {
+		t.Errorf("expected new sub_id to carry the submitted routing profile, got enabled=%v profile=%+v", newEnabled, newProfile)
+	}
+}
+
+func TestUsers_Delete_CleansUpRoutingProfile(t *testing.T) {
+	s, _ := newTestServer(t)
+	cookie := loginAndGetCookie(t, s)
+	token := csrfTokenFor(t, s, cookie)
+
+	id := createUserViaHandler(t, s, cookie, token, "kevin", "sub-kevin")
+	if err := s.routing.Set("sub-kevin", true, routing.Profile{RouteOrder: "Proxy>Direct>Block"}); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	form := url.Values{"csrf_token": {token}}
+	req := httptest.NewRequest(http.MethodPost, "/users/"+itoa(id)+"/delete", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("delete: expected 302, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	enabled, _, err := s.routing.Get("sub-kevin")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if enabled {
+		t.Error("expected routing profile cleaned up after delete")
+	}
+}
+
+func TestUserDetail_ShowsRoutingPreview(t *testing.T) {
+	s, _ := newTestServer(t)
+	cookie := loginAndGetCookie(t, s)
+	token := csrfTokenFor(t, s, cookie)
+
+	id := createUserViaHandler(t, s, cookie, token, "laura", "sub-laura")
+	if err := s.routing.Set("sub-laura", true, routing.Profile{RouteOrder: "Block>Proxy>Direct", DirectSites: []string{"example.com"}}); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/users/"+itoa(id), nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "Block&gt;Proxy&gt;Direct") && !strings.Contains(body, "Block>Proxy>Direct") {
+		t.Errorf("expected page to show the routing preview with RouteOrder, got: %s", body)
+	}
+	if !strings.Contains(body, "example.com") {
+		t.Errorf("expected page to show DirectSites in the preview, got: %s", body)
 	}
 }
 

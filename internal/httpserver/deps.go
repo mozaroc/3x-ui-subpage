@@ -21,6 +21,7 @@ import (
 	"github.com/irazin/3x-ui-subpage/internal/generator/tmplctx"
 	"github.com/irazin/3x-ui-subpage/internal/generator/xrayjson"
 	"github.com/irazin/3x-ui-subpage/internal/resolver"
+	"github.com/irazin/3x-ui-subpage/internal/routing"
 	"github.com/irazin/3x-ui-subpage/internal/theme"
 )
 
@@ -70,6 +71,12 @@ type AssignmentResolver interface {
 	Resolve(subID, format string) (string, error)
 }
 
+// RoutingResolver resolves a subscriber's Happ/Incy Routing Profile.
+// Satisfied by *routing.Store.
+type RoutingResolver interface {
+	Get(subID string) (enabled bool, profile routing.Profile, err error)
+}
+
 // Deps holds every collaborator the HTTP layer needs.
 type Deps struct {
 	Logger *slog.Logger
@@ -84,6 +91,7 @@ type Deps struct {
 	ThemeSlug   string // active theme's slug, e.g. "default" — used to mount /assets/{slug}/...
 	Apps        AppCatalog
 	Assignments AssignmentResolver
+	Routing     RoutingResolver
 
 	QRDefaults config.QRConfig
 	PublicURL  string
@@ -104,4 +112,5 @@ var (
 	_ ThemeRenderer      = (*theme.Engine)(nil)
 	_ AppCatalog         = (*apps.Catalog)(nil)
 	_ AssignmentResolver = (*assignment.Store)(nil)
+	_ RoutingResolver    = (*routing.Store)(nil)
 )

@@ -14,12 +14,5 @@
       "sni": "{{$c.SNI}}"
     }{{end}}
   ],
-  "rules": [
-{{range $i, $r := .Rules}}{{if $i}},
-{{end}}    {
-      "type": "{{$r.Type}}",
-      "match": "{{$r.Value}}",
-      "action": "{{$r.Outbound}}"
-    }{{end}}
-  ]
+  "rules": []
 }

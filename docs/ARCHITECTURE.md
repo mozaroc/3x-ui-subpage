@@ -12,8 +12,9 @@ reconstructed by this project — they're 3x-ui's own canonical strings,
 fetched from the panel's REST API and used verbatim, parsed only to feed
 the formats that need structured fields (Clash/Mihomo/xray-json/Happ/Incy).
 Every admin-editable surface — settings, app
-catalog, themes, generator templates, routing rules, per-user assignments,
-and now user accounts themselves (synced out to 3x-ui automatically) —
+catalog, themes, generator templates, per-user template assignments,
+per-user Happ/Incy routing profiles, and now user accounts themselves
+(synced out to 3x-ui automatically) —
 lives in one SQLite database, edited either through a server-rendered
 admin web UI
 (`/admin`) or directly via SQL; the binary's only on-disk dependency is a
@@ -154,8 +155,9 @@ tiny bootstrap file naming that database's path.
     format, so `rawgen` applies no output validation (no YAML/JSON parse
     check) — the admin-authored template fully owns the output bytes, same
     trust model as every other format's template but without an assumed
-    schema to validate against. Also injects `.Rules` (from
-    `internal/routing`) into the template context alongside `.Clients`.
+    schema to validate against. (These clients' own native "Routing
+    Profile" feature is unrelated to this template — see `internal/routing`
+    below; it's delivered via response headers, never templated.)
   - Shared support packages: `tmplcache` (loads+caches templates from
     the `templates` table keyed by `(format, profile, protocol)`, falling
     back to the `"default"` profile and re-parsing only when a row's
@@ -170,15 +172,24 @@ tiny bootstrap file naming that database's path.
 - **`internal/templatestore`** — the admin-write counterpart to
   `tmplcache`'s hot-reloaded reads: plain CRUD over the `templates` table,
   used only by the admin UI.
-- **`internal/routing`** — administrator-editable routing rules (table
-  `routing_rules`): GEOIP, geosite, domain/domain-suffix/domain-keyword,
-  regex, CIDR, IP range, process, protocol, port, DNS, and custom rules,
-  keyed by `(profile, sort_order)` with the same "falls back to `default`"
-  convention as `assignment`/`tmplcache`. Consumed by generator templates
-  (currently `happ`/`incy`, but any format's template can reference
-  `.Rules`) so the routing-rule *data* lives in one structured table while
-  each client format's *template* decides how to render it into that
-  client's own syntax.
+- **`internal/routing`** — per-subscriber Happ/Incy "Routing Profile"
+  (table `user_routing`, keyed by `sub_id`): the client apps' own native
+  traffic-splitting feature (`GlobalProxy`, `RouteOrder`, `DomainStrategy`,
+  remote/domestic DNS, `DnsHosts`, GeoIP/GeoSite URLs, Direct/Proxy/Block
+  site+IP lists, `FakeDNS`, `UseChunkFiles`), documented at
+  routing.happ.su / docs.incy.cc/en/routing. Unrelated to any generated
+  config's *body* — `Profile.EncodeDeepLink` renders the exact wire JSON
+  (note two real quirks: `GlobalProxy`/`FakeDNS` are the literal strings
+  `"true"`/`"false"`, not JSON booleans, while `UseChunkFiles` is a
+  genuine bool) and wraps it as `{scheme}://routing/{action}/{base64}`;
+  `httpserver.writeRoutingHeaders` sets this as the `Routing` response
+  header (plus `Routing-Enable: true|false`) on every endpoint a Happ or
+  Incy client actually hits, mirroring upstream 3x-ui's own
+  `ApplyCommonHeaders` but scoped per-subscriber. This replaced an earlier,
+  unrelated global feature of the same package name (Xray-core GEOIP/
+  domain/CIDR rules on a standalone `/admin/routing` page) — the two
+  happened to share the word "routing" but modeled completely different
+  things; the old one was removed outright, not migrated.
 - **`internal/users`** — the canonical source of truth for subscriber
   accounts (table `users`) and their inbound assignments (table
   `user_inbounds`). Owns local bookkeeping only — a `User`'s
@@ -229,11 +240,12 @@ tiny bootstrap file naming that database's path.
   (its own templates are `//go:embed`ded application code, **not**
   admin-editable database content — letting database content control the
   panel that administers the database would be a privilege-escalation
-  footgun) covering settings, applications, themes, templates, routing, and
+  footgun) covering settings, applications, themes, templates, and
   users (create/edit/delete/suspend/reactivate/reset-traffic/change-limits/
   change-expiry/regenerate-uuid/search/filter/sort/bulk-ops, inbound
-  assignment, per-client-type template assignment, direct connection links,
-  and synchronization status, plus the `/admin/sync` history/retry view).
+  assignment, per-client-type template assignment, per-subscriber Happ/Incy
+  routing profile, direct connection links, and synchronization status,
+  plus the `/admin/sync` history/retry view).
   Session + CSRF + secure-header middleware; mounted at `/admin` by
   `cmd/subscription-service`.
 - **`internal/httpserver`** — chi router, middleware (secure headers, rate

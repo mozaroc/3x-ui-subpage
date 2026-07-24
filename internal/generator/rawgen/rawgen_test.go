@@ -24,7 +24,7 @@ func readShippedTemplate(t *testing.T, format string) string {
 	return string(content)
 }
 
-const happTmpl = `{"servers":[{{range $i, $c := .Clients}}{{if $i}},{{end}}{"name":"{{$c.Remark}}","server":"{{$c.Server}}"}{{end}}],"rules":[{{range $i, $r := .Rules}}{{if $i}},{{end}}{"type":"{{$r.Type}}","value":"{{$r.Value}}","outbound":"{{$r.Outbound}}"}{{end}}]}`
+const happTmpl = `{"servers":[{{range $i, $c := .Clients}}{{if $i}},{{end}}{"name":"{{$c.Remark}}","server":"{{$c.Server}}"}{{end}}]}`
 
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
@@ -40,15 +40,6 @@ func openTestDB(t *testing.T) *sql.DB {
 		)`); err != nil {
 		t.Fatalf("create templates table: %v", err)
 	}
-	if _, err := db.Exec(`
-		CREATE TABLE routing_rules (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			profile TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0,
-			type TEXT NOT NULL, value TEXT NOT NULL, outbound TEXT NOT NULL DEFAULT '',
-			enabled INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL
-		)`); err != nil {
-		t.Fatalf("create routing_rules table: %v", err)
-	}
 	t.Cleanup(func() { db.Close() })
 	return db
 }
@@ -62,25 +53,15 @@ func insertTemplate(t *testing.T, db *sql.DB, format, profile, content string) {
 	}
 }
 
-func insertRule(t *testing.T, db *sql.DB, profile, typ, value, outbound string) {
-	t.Helper()
-	_, err := db.Exec(`INSERT INTO routing_rules (profile, sort_order, type, value, outbound, enabled, updated_at) VALUES (?, 0, ?, ?, ?, 1, 1)`,
-		profile, typ, value, outbound)
-	if err != nil {
-		t.Fatalf("insert rule: %v", err)
-	}
-}
-
 func oneClient() []tmplctx.ClientContext {
 	return []tmplctx.ClientContext{
 		{Protocol: "vless", Remark: "node-1", Server: "vpn.example.com", Port: 443, UUID: "uuid-1"},
 	}
 }
 
-func TestBuild_IncludesClientsAndRules(t *testing.T) {
+func TestBuild_IncludesClients(t *testing.T) {
 	db := openTestDB(t)
 	insertTemplate(t, db, "happ", "default", happTmpl)
-	insertRule(t, db, "default", "geoip", "CN", "direct")
 
 	g := New(db, "happ")
 	out, err := g.Build(oneClient(), "default")
@@ -90,15 +71,11 @@ func TestBuild_IncludesClientsAndRules(t *testing.T) {
 	if !strings.Contains(out, `"name":"node-1"`) {
 		t.Errorf("expected client remark in output, got: %s", out)
 	}
-	if !strings.Contains(out, `"type":"geoip"`) {
-		t.Errorf("expected routing rule in output, got: %s", out)
-	}
 }
 
 func TestBuild_ShippedHappTemplate_ProducesValidXrayCoreShapedJSON(t *testing.T) {
 	db := openTestDB(t)
 	insertTemplate(t, db, "happ", "default", readShippedTemplate(t, "happ"))
-	insertRule(t, db, "default", "geoip", "CN", "direct")
 
 	clients := []tmplctx.ClientContext{
 		{
@@ -150,9 +127,6 @@ func TestBuild_ShippedHappTemplate_ProducesValidXrayCoreShapedJSON(t *testing.T)
 				} `json:"realitySettings"`
 			} `json:"streamSettings"`
 		} `json:"outbounds"`
-		Routing struct {
-			Rules []map[string]any `json:"rules"`
-		} `json:"routing"`
 	}
 	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
 		t.Fatalf("shipped happ template did not produce a valid JSON array: %v\n%s", err, out)
@@ -191,10 +165,6 @@ func TestBuild_ShippedHappTemplate_ProducesValidXrayCoreShapedJSON(t *testing.T)
 	if !hasDirect || !hasBlock {
 		t.Errorf("expected direct+block fallback outbounds alongside the proxy, got %+v", first.Outbounds)
 	}
-
-	if len(first.Routing.Rules) != 1 || first.Routing.Rules[0]["geoip"] != "CN" || first.Routing.Rules[0]["outboundTag"] != "direct" {
-		t.Errorf("expected the configured routing rule to render, got %+v", first.Routing.Rules)
-	}
 }
 
 func TestBuild_NoOutputValidation(t *testing.T) {
@@ -211,20 +181,18 @@ func TestBuild_NoOutputValidation(t *testing.T) {
 	}
 }
 
-func TestBuild_ProfileFallbackIndependentForTemplateAndRules(t *testing.T) {
+func TestBuild_ProfileFallback(t *testing.T) {
 	db := openTestDB(t)
 	insertTemplate(t, db, "happ", "default", happTmpl)
-	insertRule(t, db, "default", "geoip", "CN", "direct")
-	// "gaming" has no template row and no rule row of its own -- both should
-	// fall back to "default" independently.
+	// "gaming" has no template row of its own -- should fall back to "default".
 
 	g := New(db, "happ")
 	out, err := g.Build(oneClient(), "gaming")
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if !strings.Contains(out, `"type":"geoip"`) {
-		t.Errorf("expected rules to fall back to default profile, got: %s", out)
+	if !strings.Contains(out, `"name":"node-1"`) {
+		t.Errorf("expected template to fall back to default profile, got: %s", out)
 	}
 }
 

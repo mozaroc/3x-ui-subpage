@@ -571,73 +571,19 @@ func TestTemplateDelete(t *testing.T) {
 	}
 }
 
-func TestRouting_FullCRUDRoundTrip(t *testing.T) {
+// The standalone global Routing page (Xray-core GEOIP/domain/CIDR rules)
+// was removed -- routing is now the per-subscriber Happ/Incy Routing
+// Profile, configured on the User pages (see handlers_users_test.go).
+func TestRoutingRoute_Removed(t *testing.T) {
 	s, _ := newTestServer(t)
 	cookie := loginAndGetCookie(t, s)
-	token := csrfTokenFor(t, s, cookie)
 
-	// Create
-	form := url.Values{
-		"profile": {"gaming"}, "type": {"geoip"}, "value": {"CN"}, "outbound": {"direct"},
-		"sort_order": {"0"}, "enabled": {"1"}, "csrf_token": {token},
-	}
-	req := httptest.NewRequest(http.MethodPost, "/routing", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req := httptest.NewRequest(http.MethodGet, "/routing", nil)
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	s.Router().ServeHTTP(rec, req)
-	if rec.Code != http.StatusFound {
-		t.Fatalf("create: expected 302, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	// List should show it
-	req = httptest.NewRequest(http.MethodGet, "/routing", nil)
-	req.AddCookie(cookie)
-	rec = httptest.NewRecorder()
-	s.Router().ServeHTTP(rec, req)
-	if !strings.Contains(rec.Body.String(), "gaming") {
-		t.Fatalf("expected list to contain created rule, got: %s", rec.Body.String())
-	}
-
-	all, err := s.routing.List()
-	if err != nil || len(all) != 1 {
-		t.Fatalf("expected exactly 1 rule, got %v (err=%v)", all, err)
-	}
-	id := all[0].ID
-
-	// Update
-	form = url.Values{
-		"profile": {"gaming"}, "type": {"cidr"}, "value": {"10.0.0.0/8"}, "outbound": {"proxy"},
-		"sort_order": {"5"}, "csrf_token": {token},
-	}
-	req = httptest.NewRequest(http.MethodPost, "/routing/"+itoa(id), strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(cookie)
-	rec = httptest.NewRecorder()
-	s.Router().ServeHTTP(rec, req)
-	if rec.Code != http.StatusFound {
-		t.Fatalf("update: expected 302, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	updated, err := s.routing.Get(id)
-	if err != nil || updated.Type != "cidr" || updated.Enabled {
-		t.Fatalf("expected updated+disabled rule (checkbox omitted), got %+v (err=%v)", updated, err)
-	}
-
-	// Delete
-	form = url.Values{"csrf_token": {token}}
-	req = httptest.NewRequest(http.MethodPost, "/routing/"+itoa(id)+"/delete", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(cookie)
-	rec = httptest.NewRecorder()
-	s.Router().ServeHTTP(rec, req)
-	if rec.Code != http.StatusFound {
-		t.Fatalf("delete: expected 302, got %d", rec.Code)
-	}
-
-	all, err = s.routing.List()
-	if err != nil || len(all) != 0 {
-		t.Fatalf("expected 0 rules after delete, got %v", all)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected /admin/routing to 404, got %d", rec.Code)
 	}
 }
 

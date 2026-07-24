@@ -17,21 +17,17 @@ import (
 	"github.com/irazin/3x-ui-subpage/internal/generator/tmplcache"
 	"github.com/irazin/3x-ui-subpage/internal/generator/tmplctx"
 	"github.com/irazin/3x-ui-subpage/internal/generator/tmplfuncs"
-	"github.com/irazin/3x-ui-subpage/internal/routing"
 )
 
 // context is the data passed to the template.
 type context struct {
 	Clients []tmplctx.ClientContext
-	Rules   []routing.Rule
 }
 
 // Generator renders a full client config from a template loaded
-// per-profile, hot-reloaded on change, plus that profile's routing rules
-// (falling back to the "default" profile independently for each).
+// per-profile, hot-reloaded on change.
 type Generator struct {
 	cache *tmplcache.Cache[*template.Template]
-	rules *routing.Store
 }
 
 // New builds a Generator backed by db for the given format (e.g. "happ" or
@@ -40,7 +36,7 @@ func New(db *sql.DB, format string) *Generator {
 	cache := tmplcache.New(db, format, func(name, content string) (*template.Template, error) {
 		return template.New(name).Funcs(tmplfuncs.FuncMap()).Parse(content)
 	})
-	return &Generator{cache: cache, rules: routing.New(db)}
+	return &Generator{cache: cache}
 }
 
 // Build renders the config for every client using the subscriber's assigned
@@ -53,14 +49,8 @@ func (g *Generator) Build(clients []tmplctx.ClientContext, profile string) (stri
 		return "", fmt.Errorf("rawgen: load template: %w", err)
 	}
 
-	rules, err := g.rules.ForProfile(profile)
-	if err != nil {
-		return "", fmt.Errorf("rawgen: load routing rules: %w", err)
-	}
-
 	var sb strings.Builder
-	ctx := context{Clients: clients, Rules: rules}
-	if err := tmpl.Execute(&sb, ctx); err != nil {
+	if err := tmpl.Execute(&sb, context{Clients: clients}); err != nil {
 		return "", fmt.Errorf("rawgen: render: %w", err)
 	}
 	return sb.String(), nil

@@ -2,7 +2,7 @@ package routing
 
 import (
 	"database/sql"
-	"errors"
+	"reflect"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -14,162 +14,132 @@ func openTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if _, err := db.Exec(`
-		CREATE TABLE routing_rules (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			profile TEXT NOT NULL,
-			sort_order INTEGER NOT NULL DEFAULT 0,
-			type TEXT NOT NULL,
-			value TEXT NOT NULL,
-			outbound TEXT NOT NULL DEFAULT '',
-			enabled INTEGER NOT NULL DEFAULT 1,
-			updated_at INTEGER NOT NULL
-		)`); err != nil {
+	if _, err := db.Exec(`CREATE TABLE user_routing (
+		sub_id TEXT PRIMARY KEY,
+		enabled INTEGER NOT NULL DEFAULT 0,
+		config TEXT NOT NULL DEFAULT '{}',
+		updated_at INTEGER NOT NULL
+	)`); err != nil {
 		t.Fatalf("create table: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
 	return db
 }
 
-func TestCreateGetUpdateDelete(t *testing.T) {
+func TestGet_NoRowReturnsDisabledZeroProfile(t *testing.T) {
 	db := openTestDB(t)
 	s := New(db)
 
-	id, err := s.Create(Rule{Profile: "default", Type: "geoip", Value: "CN", Outbound: "direct", Enabled: true})
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-
-	got, err := s.Get(id)
+	enabled, profile, err := s.Get("tok-unknown")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got.Type != "geoip" || got.Value != "CN" || !got.Enabled {
-		t.Errorf("unexpected rule: %+v", got)
+	if enabled {
+		t.Error("expected disabled for a subscriber with no row")
 	}
-
-	if err := s.Update(id, Rule{Profile: "default", Type: "cidr", Value: "10.0.0.0/8", Outbound: "direct", Enabled: false}); err != nil {
-		t.Fatalf("Update: %v", err)
-	}
-	got, err = s.Get(id)
-	if err != nil {
-		t.Fatalf("Get after update: %v", err)
-	}
-	if got.Type != "cidr" || got.Enabled {
-		t.Errorf("update did not take effect: %+v", got)
-	}
-
-	if err := s.Delete(id); err != nil {
-		t.Fatalf("Delete: %v", err)
-	}
-	if _, err := s.Get(id); !errors.Is(err, ErrNotFound) {
-		t.Errorf("expected ErrNotFound after delete, got %v", err)
+	if !reflect.DeepEqual(profile, Profile{}) {
+		t.Errorf("expected zero-value profile, got %+v", profile)
 	}
 }
 
-func TestForProfile_FallsBackToDefault(t *testing.T) {
+func TestSet_ThenGetRoundTrips(t *testing.T) {
 	db := openTestDB(t)
 	s := New(db)
 
-	if _, err := s.Create(Rule{Profile: "default", SortOrder: 0, Type: "geoip", Value: "CN", Outbound: "direct", Enabled: true}); err != nil {
-		t.Fatalf("Create: %v", err)
+	profile := Profile{
+		GlobalProxy:    true,
+		RouteOrder:     "Proxy>Direct>Block",
+		DomainStrategy: "IPIfNonMatch",
+		DirectSites:    []string{"example.com"},
+		BlockIP:        []string{"1.2.3.0/24"},
+		DNSHosts:       map[string]string{"example.com": "1.2.3.4"},
+		FakeDNS:        true,
+		UseChunkFiles:  true,
+	}
+	if err := s.Set("tok-bob", true, profile); err != nil {
+		t.Fatalf("Set: %v", err)
 	}
 
-	rules, err := s.ForProfile("gaming")
+	enabled, got, err := s.Get("tok-bob")
 	if err != nil {
-		t.Fatalf("ForProfile: %v", err)
+		t.Fatalf("Get: %v", err)
 	}
-	if len(rules) != 1 || rules[0].Value != "CN" {
-		t.Fatalf("expected fallback to default profile's rule, got %+v", rules)
+	if !enabled {
+		t.Error("expected enabled=true")
+	}
+	if got.RouteOrder != profile.RouteOrder || got.DomainStrategy != profile.DomainStrategy {
+		t.Errorf("expected profile to round-trip, got %+v", got)
+	}
+	if len(got.DirectSites) != 1 || got.DirectSites[0] != "example.com" {
+		t.Errorf("expected DirectSites to round-trip, got %+v", got.DirectSites)
+	}
+	if got.DNSHosts["example.com"] != "1.2.3.4" {
+		t.Errorf("expected DNSHosts to round-trip, got %+v", got.DNSHosts)
 	}
 }
 
-func TestForProfile_OwnRulesTakePrecedence(t *testing.T) {
+func TestSet_OverwritesExisting(t *testing.T) {
 	db := openTestDB(t)
 	s := New(db)
 
-	if _, err := s.Create(Rule{Profile: "default", Type: "geoip", Value: "CN", Outbound: "direct", Enabled: true}); err != nil {
-		t.Fatalf("Create default: %v", err)
+	if err := s.Set("tok-bob", true, Profile{RouteOrder: "Proxy>Direct>Block"}); err != nil {
+		t.Fatalf("Set v1: %v", err)
 	}
-	if _, err := s.Create(Rule{Profile: "gaming", Type: "domain", Value: "steampowered.com", Outbound: "proxy", Enabled: true}); err != nil {
-		t.Fatalf("Create gaming: %v", err)
+	if err := s.Set("tok-bob", false, Profile{RouteOrder: "Block>Proxy>Direct"}); err != nil {
+		t.Fatalf("Set v2: %v", err)
 	}
 
-	rules, err := s.ForProfile("gaming")
+	enabled, profile, err := s.Get("tok-bob")
 	if err != nil {
-		t.Fatalf("ForProfile: %v", err)
+		t.Fatalf("Get: %v", err)
 	}
-	if len(rules) != 1 || rules[0].Value != "steampowered.com" {
-		t.Fatalf("expected gaming's own rule, not default's, got %+v", rules)
+	if enabled {
+		t.Error("expected enabled=false after overwrite")
+	}
+	if profile.RouteOrder != "Block>Proxy>Direct" {
+		t.Errorf("expected overwritten RouteOrder, got %q", profile.RouteOrder)
 	}
 }
 
-func TestForProfile_IgnoresDisabledRules(t *testing.T) {
+func TestDeleteAll_FallsBackToDisabled(t *testing.T) {
 	db := openTestDB(t)
 	s := New(db)
 
-	if _, err := s.Create(Rule{Profile: "default", Type: "geoip", Value: "CN", Outbound: "direct", Enabled: false}); err != nil {
-		t.Fatalf("Create: %v", err)
+	if err := s.Set("tok-bob", true, Profile{RouteOrder: "Proxy>Direct>Block"}); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if err := s.DeleteAll("tok-bob"); err != nil {
+		t.Fatalf("DeleteAll: %v", err)
 	}
 
-	rules, err := s.ForProfile("default")
+	enabled, profile, err := s.Get("tok-bob")
 	if err != nil {
-		t.Fatalf("ForProfile: %v", err)
+		t.Fatalf("Get: %v", err)
 	}
-	if len(rules) != 0 {
-		t.Fatalf("expected disabled rule excluded, got %+v", rules)
+	if enabled || !reflect.DeepEqual(profile, Profile{}) {
+		t.Errorf("expected disabled zero-value profile after DeleteAll, got enabled=%v profile=%+v", enabled, profile)
 	}
 }
 
-func TestForProfile_OrderedBySortOrder(t *testing.T) {
+func TestDeleteAll_DoesNotAffectOtherSubscribers(t *testing.T) {
 	db := openTestDB(t)
 	s := New(db)
 
-	if _, err := s.Create(Rule{Profile: "default", SortOrder: 10, Type: "domain", Value: "second", Enabled: true}); err != nil {
-		t.Fatalf("Create: %v", err)
+	if err := s.Set("tok-bob", true, Profile{RouteOrder: "Proxy>Direct>Block"}); err != nil {
+		t.Fatalf("Set: %v", err)
 	}
-	if _, err := s.Create(Rule{Profile: "default", SortOrder: 0, Type: "domain", Value: "first", Enabled: true}); err != nil {
-		t.Fatalf("Create: %v", err)
+	if err := s.Set("tok-alice", true, Profile{RouteOrder: "Block>Proxy>Direct"}); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if err := s.DeleteAll("tok-bob"); err != nil {
+		t.Fatalf("DeleteAll: %v", err)
 	}
 
-	rules, err := s.ForProfile("default")
+	enabled, profile, err := s.Get("tok-alice")
 	if err != nil {
-		t.Fatalf("ForProfile: %v", err)
+		t.Fatalf("Get: %v", err)
 	}
-	if len(rules) != 2 || rules[0].Value != "first" || rules[1].Value != "second" {
-		t.Fatalf("expected sort_order ordering, got %+v", rules)
-	}
-}
-
-func TestList_ReturnsAllRules(t *testing.T) {
-	db := openTestDB(t)
-	s := New(db)
-
-	s.Create(Rule{Profile: "default", Type: "geoip", Value: "CN", Enabled: true})
-	s.Create(Rule{Profile: "gaming", Type: "domain", Value: "steampowered.com", Enabled: false})
-
-	all, err := s.List()
-	if err != nil {
-		t.Fatalf("List: %v", err)
-	}
-	if len(all) != 2 {
-		t.Fatalf("expected 2 rules total (including disabled), got %d", len(all))
-	}
-}
-
-func TestListProfiles(t *testing.T) {
-	db := openTestDB(t)
-	s := New(db)
-
-	s.Create(Rule{Profile: "default", Type: "geoip", Value: "CN", Enabled: true})
-	s.Create(Rule{Profile: "gaming", Type: "domain", Value: "steampowered.com", Enabled: true})
-	s.Create(Rule{Profile: "gaming", Type: "domain", Value: "valvesoftware.com", Enabled: true})
-
-	profiles, err := s.ListProfiles()
-	if err != nil {
-		t.Fatalf("ListProfiles: %v", err)
-	}
-	if len(profiles) != 2 || profiles[0] != "default" || profiles[1] != "gaming" {
-		t.Fatalf("expected [default gaming], got %v", profiles)
+	if !enabled || profile.RouteOrder != "Block>Proxy>Direct" {
+		t.Errorf("expected tok-alice unaffected, got enabled=%v profile=%+v", enabled, profile)
 	}
 }

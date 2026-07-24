@@ -26,13 +26,7 @@
       {"tag": "direct", "protocol": "freedom"},
       {"tag": "block", "protocol": "blackhole"}
     ],
-    "routing": {
-      "domainStrategy": "AsIs",
-      "rules": [
-{{range $j, $r := $.Rules}}{{if $j}},
-{{end}}        {"type": "field", {{jsonstr $r.Type}}: {{jsonstr $r.Value}}, "outboundTag": {{jsonstr $r.Outbound}}}
-{{end}}      ]
-    }
+    "routing": {"domainStrategy": "AsIs", "rules": []}
   }
 {{end}}
 ]

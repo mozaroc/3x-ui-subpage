@@ -17,16 +17,20 @@
 #
 # Usage:
 #   sudo bash install.sh [options]
+#   sudo bash install.sh --update [--version <tag>]
 #   sudo bash install.sh --uninstall [-y]
 #
 # Options:
 #   --mode dedicated|panel     Force install mode (auto-detected otherwise)
-#   --version <tag>            Release tag to install (default: latest)
+#   --version <tag>            Release tag to install/update to (default: latest)
 #   --domain <domain>          Domain this service is reachable under
 #   --xui-base-url <url>       3x-ui panel API base URL
 #   --xui-api-key <key>        3x-ui panel API token (Settings -> Security -> API Token)
 #   --server-host <host>       Public address VPN clients should connect to
 #   -y, --yes                  Assume yes on destructive confirmations (uninstall)
+#   --update                   Upgrade an existing install's binary + bundled web/
+#                              assets to --version (default: latest). Leaves nginx,
+#                              the admin account, and every setting untouched.
 #   --uninstall                Remove the service (add -y to skip prompts)
 #   -h, --help                 Show this help
 #
@@ -60,6 +64,7 @@ XUI_BASE_URL=""
 XUI_API_KEY=""
 SERVER_HOST=""
 UNINSTALL=""
+UPDATE=""
 ASSUME_YES="n"
 
 WORKDIR=""
@@ -96,6 +101,7 @@ parse_args() {
       --xui-api-key) XUI_API_KEY="${2:?--xui-api-key requires an argument}"; shift 2 ;;
       --server-host) SERVER_HOST="${2:?--server-host requires an argument}"; shift 2 ;;
       --uninstall) UNINSTALL="1"; shift ;;
+      --update) UPDATE="1"; shift ;;
       -y|--yes) ASSUME_YES="y"; shift ;;
       -h|--help) usage 0 ;;
       *) die "unknown argument: $1 (see --help)" ;;
@@ -106,6 +112,10 @@ parse_args() {
     ""|dedicated|panel) ;;
     *) die "--mode must be 'dedicated' or 'panel', got: $MODE" ;;
   esac
+
+  if [[ -n "$UNINSTALL" && -n "$UPDATE" ]]; then
+    die "--uninstall and --update are mutually exclusive"
+  fi
 }
 
 require_root() {
@@ -423,22 +433,42 @@ EOF
 # nginx: shared location block, mode-specific vhost/snippet wiring
 # ---------------------------------------------------------------------------
 
-resolve_random_path() {
-  local existing="" target=""
+detect_existing_random_path() {
+  local target=""
   if [[ "$MODE" == "panel" && -f "$NGINX_SNIPPET" ]]; then
     target="$NGINX_SNIPPET"
   elif [[ "$MODE" == "dedicated" && -f "$NGINX_VHOST_DEDICATED" ]]; then
     target="$NGINX_VHOST_DEDICATED"
   fi
-  if [[ -n "$target" ]]; then
-    existing="$(grep -oP 'location /\K[a-zA-Z0-9]+(?=/ \{)' "$target" | head -n1 || true)"
-  fi
+  [[ -n "$target" ]] && grep -oP 'location /\K[a-zA-Z0-9]+(?=/ \{)' "$target" | head -n1
+  return 0
+}
+
+# Existing random path from a previous install's nginx file, if any; empty
+# otherwise (never generates one) — used by --update, which must never write
+# nginx config, only read what's already there.
+resolve_random_path() {
+  local existing
+  existing="$(detect_existing_random_path || true)"
   if [[ -n "$existing" ]]; then
     RANDOM_PATH="$existing"
     log "Reusing existing random path from a previous install: /${RANDOM_PATH}/"
   else
     RANDOM_PATH="$(rand_str 12)"
   fi
+}
+
+# Best-effort domain of an already-configured install (no writes, no
+# fallback random generation) — used by --update to probe the public
+# endpoint after swapping the binary.
+detect_existing_domain() {
+  if [[ "$MODE" == "dedicated" ]]; then
+    [[ -f "$NGINX_VHOST_DEDICATED" ]] && current_server_name "$NGINX_VHOST_DEDICATED"
+    return 0
+  fi
+  detect_panel_domain_port
+  [[ -n "$DETECTED_DOMAIN" ]] && echo "$DETECTED_DOMAIN"
+  return 0
 }
 
 # Appends the reverse-proxy location block to $1. Uses a quoted heredoc
@@ -566,7 +596,7 @@ configure_nginx_panel() {
 # verification + summary
 # ---------------------------------------------------------------------------
 
-verify_install() {
+verify_local() {
   log "Waiting for the service to come up"
   local ok=""
   for _ in $(seq 1 20); do
@@ -581,12 +611,22 @@ verify_install() {
     die "service did not come up in time; see log above (journalctl -u ${SERVICE_NAME})"
   fi
   log "Service is healthy locally"
+}
 
+# Best-effort only: skipped entirely if DOMAIN/RANDOM_PATH aren't both known
+# (e.g. --update couldn't detect an existing nginx config), never fatal.
+verify_public() {
+  [[ -n "$DOMAIN" && -n "$RANDOM_PATH" ]] || return 0
   if curl -fsko /dev/null --max-time 10 "https://${DOMAIN}/${RANDOM_PATH}/healthz"; then
     log "Public endpoint reachable: https://${DOMAIN}/${RANDOM_PATH}/"
   else
     warn "could not reach https://${DOMAIN}/${RANDOM_PATH}/healthz from this host yet (DNS propagation / firewall?) — the service itself is healthy locally"
   fi
+}
+
+verify_install() {
+  verify_local
+  verify_public
 }
 
 print_summary() {
@@ -620,6 +660,54 @@ EOF
  Logs:        journalctl -u ${SERVICE_NAME} -f
 =====================================================================
 EOF
+}
+
+# ---------------------------------------------------------------------------
+# update
+# ---------------------------------------------------------------------------
+
+# do_update upgrades an existing install in place: downloads --version
+# (default latest), swaps the binary + bundled web/ assets, re-runs -import
+# (safe to re-run — refreshes the bundled default theme/templates/apps
+# without touching anything added or edited through the admin UI, see
+# docs/CONFIGURATION.md), and restarts the service. Never touches nginx,
+# the admin account, or any setting — those are exactly what a re-run of
+# the plain installer would otherwise clobber or regenerate.
+do_update() {
+  check_os
+  detect_mode
+
+  [[ -x "$BINARY_PATH" ]] || die "no existing installation found at ${BINARY_PATH} — run install.sh without --update first"
+  [[ -f "$BOOTSTRAP_FILE" ]] || die "no bootstrap config found at ${BOOTSTRAP_FILE} — installation looks incomplete, run install.sh without --update first"
+
+  WORKDIR="$(mktemp -d)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '${WORKDIR}'" EXIT
+
+  download_release
+
+  log "Stopping ${SERVICE_NAME}"
+  systemctl stop "${SERVICE_NAME}"
+
+  log "Installing ${RELEASE_TAG}"
+  install -m 0755 -o root -g root "${WORKDIR}/${DOWNLOAD_BIN_NAME}" "$BINARY_PATH"
+  rm -rf "${INSTALL_DIR}/web"
+  tar -xzf "${WORKDIR}/web.tar.gz" -C "$INSTALL_DIR"
+
+  log "Refreshing bundled default theme/templates/applications (admin-added content is left untouched)"
+  run_import
+  fix_permissions
+
+  log "Starting ${SERVICE_NAME}"
+  systemctl start "${SERVICE_NAME}"
+
+  DOMAIN="$(detect_existing_domain || true)"
+  RANDOM_PATH="$(detect_existing_random_path || true)"
+
+  verify_local
+  verify_public
+
+  log "Updated to ${RELEASE_TAG}"
 }
 
 # ---------------------------------------------------------------------------
@@ -679,6 +767,11 @@ main() {
 
   if [[ -n "$UNINSTALL" ]]; then
     do_uninstall
+    exit 0
+  fi
+
+  if [[ -n "$UPDATE" ]]; then
+    do_update
     exit 0
   fi
 

@@ -1,27 +1,38 @@
-{
-  "_comment": "Example starting point for the Happ client config format. Happ has no publicly-documented wire schema this project asserts as authoritative -- verify this structure against your installed Happ client version and adjust freely; this template fully controls the output bytes.",
-  "outbounds": [
+[
 {{range $i, $c := .Clients}}{{if $i}},
-{{end}}    {
-      "tag": "{{$c.Remark}}",
-      "protocol": "{{$c.Protocol}}",
-      "server": "{{$c.Server}}",
-      "port": {{$c.Port}},
-      "uuid": "{{$c.UUID}}",
-      "password": "{{$c.Password}}",
-      "network": "{{$c.Network}}",
-      "security": "{{$c.Security}}",
-      "sni": "{{$c.SNI}}"
-    }{{end}}
-  ],
-  "routing": {
-    "rules": [
-{{range $i, $r := .Rules}}{{if $i}},
-{{end}}      {
-        "type": "{{$r.Type}}",
-        "value": "{{$r.Value}}",
-        "outbound": "{{$r.Outbound}}"
-      }{{end}}
-    ]
+{{end}}  {
+    "remarks": {{jsonstr $c.Remark}},
+    "log": {"loglevel": "warning"},
+    "dns": {"servers": ["1.1.1.1", "8.8.8.8"]},
+    "outbounds": [
+      {
+        "tag": "proxy",
+        "protocol": {{jsonstr $c.Protocol}},
+        "settings": {
+{{if eq $c.Protocol "vless"}}          "vnext": [{"address": {{jsonstr $c.Server}}, "port": {{$c.Port}}, "users": [{"id": {{jsonstr $c.UUID}}, "encryption": "none"{{if $c.Flow}}, "flow": {{jsonstr $c.Flow}}{{end}}}]}]
+{{else if eq $c.Protocol "vmess"}}          "vnext": [{"address": {{jsonstr $c.Server}}, "port": {{$c.Port}}, "users": [{"id": {{jsonstr $c.UUID}}, "alterId": 0}]}]
+{{else if eq $c.Protocol "trojan"}}          "servers": [{"address": {{jsonstr $c.Server}}, "port": {{$c.Port}}, "password": {{jsonstr $c.Password}}}]
+{{else if eq $c.Protocol "shadowsocks"}}          "servers": [{"address": {{jsonstr $c.Server}}, "port": {{$c.Port}}, "method": {{jsonstr $c.Method}}, "password": {{jsonstr $c.Password}}}]
+{{end}}        },
+        "streamSettings": {
+          "network": {{jsonstr $c.Network}},
+          "security": {{jsonstr $c.Security}}
+{{if eq $c.Security "tls"}}          ,"tlsSettings": {"serverName": {{jsonstr $c.SNI}}, "fingerprint": {{jsonstr $c.Fingerprint}}{{if $c.ALPN}}, "alpn": {{splitJSON "," $c.ALPN}}{{end}}{{if $c.Insecure}}, "allowInsecure": true{{end}}}
+{{else if eq $c.Security "reality"}}          ,"realitySettings": {"serverName": {{jsonstr $c.SNI}}, "publicKey": {{jsonstr $c.PublicKey}}, "shortId": {{jsonstr $c.ShortID}}, "fingerprint": {{jsonstr $c.Fingerprint}}{{if $c.SpiderX}}, "spiderX": {{jsonstr $c.SpiderX}}{{end}}}
+{{end}}{{if eq $c.Network "ws"}}          ,"wsSettings": {"path": {{jsonstr $c.Path}}, "headers": {"Host": {{jsonstr $c.Host}}}}
+{{else if eq $c.Network "grpc"}}          ,"grpcSettings": {"serviceName": {{jsonstr $c.ServiceName}}}
+{{end}}        }
+      },
+      {"tag": "direct", "protocol": "freedom"},
+      {"tag": "block", "protocol": "blackhole"}
+    ],
+    "routing": {
+      "domainStrategy": "AsIs",
+      "rules": [
+{{range $j, $r := $.Rules}}{{if $j}},
+{{end}}        {"type": "field", {{jsonstr $r.Type}}: {{jsonstr $r.Value}}, "outboundTag": {{jsonstr $r.Outbound}}}
+{{end}}      ]
+    }
   }
-}
+{{end}}
+]

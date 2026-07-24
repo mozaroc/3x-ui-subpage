@@ -2,6 +2,8 @@ package rawgen
 
 import (
 	"database/sql"
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -9,6 +11,18 @@ import (
 
 	"github.com/irazin/3x-ui-subpage/internal/domain"
 )
+
+// readShippedTemplate loads this project's own default template for format
+// (web/templates/<format>/default.tmpl) — exercises the actual content
+// administrators get out of the box, not just a minimal test fixture.
+func readShippedTemplate(t *testing.T, format string) string {
+	t.Helper()
+	content, err := os.ReadFile("../../../web/templates/" + format + "/default.tmpl")
+	if err != nil {
+		t.Fatalf("read shipped %s template: %v", format, err)
+	}
+	return string(content)
+}
 
 const happTmpl = `{"servers":[{{range $i, $c := .Clients}}{{if $i}},{{end}}{"name":"{{$c.Remark}}","server":"{{$c.Server}}"}{{end}}],"rules":[{{range $i, $r := .Rules}}{{if $i}},{{end}}{"type":"{{$r.Type}}","value":"{{$r.Value}}","outbound":"{{$r.Outbound}}"}{{end}}]}`
 
@@ -78,6 +92,109 @@ func TestBuild_IncludesClientsAndRules(t *testing.T) {
 	}
 	if !strings.Contains(out, `"type":"geoip"`) {
 		t.Errorf("expected routing rule in output, got: %s", out)
+	}
+}
+
+func TestBuild_ShippedHappTemplate_ProducesValidXrayCoreShapedJSON(t *testing.T) {
+	db := openTestDB(t)
+	insertTemplate(t, db, "happ", "default", readShippedTemplate(t, "happ"))
+	insertRule(t, db, "default", "geoip", "CN", "direct")
+
+	clients := []domain.MatchedClient{
+		{
+			Remark:   `evil " remark`,
+			Protocol: domain.ProtocolVLESS,
+			Server:   "vpn.example.com",
+			Port:     443,
+			Client:   domain.ClientAccount{ID: "uuid-1", Email: "alice", Flow: "xtls-rprx-vision"},
+			Stream: domain.StreamSettings{
+				Network:  domain.NetworkTCP,
+				Security: domain.SecurityReality,
+				TLS:      domain.TLSSettings{SNI: "example.com", Fingerprint: "chrome", PublicKey: "pk", ShortID: "sid"},
+			},
+		},
+		{
+			Protocol: domain.ProtocolTrojan,
+			Server:   "vpn2.example.com",
+			Port:     8443,
+			Client:   domain.ClientAccount{Password: "pw", Email: "bob"},
+		},
+	}
+
+	g := New(db, "happ")
+	out, err := g.Build(clients, "default")
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	var parsed []struct {
+		Remarks   string `json:"remarks"`
+		Outbounds []struct {
+			Tag      string `json:"tag"`
+			Protocol string `json:"protocol"`
+			Settings struct {
+				Vnext []struct {
+					Address string `json:"address"`
+					Port    int    `json:"port"`
+					Users   []struct {
+						ID   string `json:"id"`
+						Flow string `json:"flow"`
+					} `json:"users"`
+				} `json:"vnext"`
+			} `json:"settings"`
+			StreamSettings struct {
+				Network         string `json:"network"`
+				Security        string `json:"security"`
+				RealitySettings struct {
+					ServerName string `json:"serverName"`
+					PublicKey  string `json:"publicKey"`
+				} `json:"realitySettings"`
+			} `json:"streamSettings"`
+		} `json:"outbounds"`
+		Routing struct {
+			Rules []map[string]any `json:"rules"`
+		} `json:"routing"`
+	}
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("shipped happ template did not produce a valid JSON array: %v\n%s", err, out)
+	}
+	if len(parsed) != 2 {
+		t.Fatalf("expected one array element per client, got %d", len(parsed))
+	}
+
+	first := parsed[0]
+	if want := "evil \" remark + alice"; first.Remarks != want {
+		t.Errorf("expected remarks %q with quote intact, got %q", want, first.Remarks)
+	}
+	if len(first.Outbounds) < 1 || first.Outbounds[0].Protocol != "vless" {
+		t.Fatalf("expected first outbound to be the real vless proxy outbound, got %+v", first.Outbounds)
+	}
+	proxy := first.Outbounds[0]
+	if len(proxy.Settings.Vnext) != 1 || proxy.Settings.Vnext[0].Address != "vpn.example.com" || proxy.Settings.Vnext[0].Port != 443 {
+		t.Errorf("expected valid xray-core vnext shape, got %+v", proxy.Settings)
+	}
+	if proxy.Settings.Vnext[0].Users[0].ID != "uuid-1" || proxy.Settings.Vnext[0].Users[0].Flow != "xtls-rprx-vision" {
+		t.Errorf("expected uuid/flow to round-trip, got %+v", proxy.Settings.Vnext[0].Users[0])
+	}
+	if proxy.StreamSettings.RealitySettings.ServerName != "example.com" || proxy.StreamSettings.RealitySettings.PublicKey != "pk" {
+		t.Errorf("expected realitySettings to round-trip, got %+v", proxy.StreamSettings.RealitySettings)
+	}
+
+	var hasDirect, hasBlock bool
+	for _, ob := range first.Outbounds {
+		if ob.Tag == "direct" {
+			hasDirect = true
+		}
+		if ob.Tag == "block" {
+			hasBlock = true
+		}
+	}
+	if !hasDirect || !hasBlock {
+		t.Errorf("expected direct+block fallback outbounds alongside the proxy, got %+v", first.Outbounds)
+	}
+
+	if len(first.Routing.Rules) != 1 || first.Routing.Rules[0]["geoip"] != "CN" || first.Routing.Rules[0]["outboundTag"] != "direct" {
+		t.Errorf("expected the configured routing rule to render, got %+v", first.Routing.Rules)
 	}
 }
 

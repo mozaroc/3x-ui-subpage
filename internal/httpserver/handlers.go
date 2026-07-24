@@ -74,8 +74,6 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		s.writeYAML(w, sub, s.deps.Clash, "clash.yaml")
 	case formatMihomo:
 		s.writeYAML(w, sub, s.deps.Mihomo, "mihomo.yaml")
-	case formatHapp:
-		s.writeRaw(w, sub, s.deps.Happ, "happ.json")
 	case formatIncy:
 		s.writeRaw(w, sub, s.deps.Incy, "incy.json")
 	default:

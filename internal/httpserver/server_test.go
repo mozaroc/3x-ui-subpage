@@ -175,7 +175,13 @@ func TestHandleSubscription_MihomoForMihomoUA(t *testing.T) {
 	}
 }
 
-func TestHandleSubscription_HappForHappUA(t *testing.T) {
+// The real Happ app requests and imports the same base64 share-link
+// subscription as every other unrecognized client (V2RayN/V2RayA/Clash/
+// SingBox all consume it too) — confirmed against Happ's own subscription
+// tooling. It must NOT get the admin-editable /happ JSON format by
+// default, or the app treats the response as an opaque file download
+// instead of an importable subscription. See detectFormat's doc comment.
+func TestHandleSubscription_HappUAGetsStandardXrayLinks(t *testing.T) {
 	srv := New(testDeps(t, sampleSubscription(), nil))
 	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc", nil)
 	req.Header.Set("User-Agent", "Happ/1.0")
@@ -186,8 +192,12 @@ func TestHandleSubscription_HappForHappUA(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), `"happ":true`) {
-		t.Errorf("expected happ body, got: %s", rec.Body.String())
+	decoded, err := base64.StdEncoding.DecodeString(rec.Body.String())
+	if err != nil {
+		t.Fatalf("expected base64 xray-link body for a Happ UA, got: %s", rec.Body.String())
+	}
+	if !strings.Contains(string(decoded), "vless://fake") {
+		t.Errorf("expected decoded body to contain the share link, got: %s", decoded)
 	}
 }
 

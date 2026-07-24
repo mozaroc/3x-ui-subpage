@@ -50,7 +50,14 @@ bearer-token-only.
   unlike Clash/Mihomo/Xray (whose dialect is well-known), the admin-authored
   `happ`/`incy` templates fully control the output bytes with no schema
   validation applied. Verify the shipped example template against your
-  installed client version before relying on it.
+  installed client version before relying on it. Note that the real Happ
+  app is deliberately **not** auto-routed to this format on plain
+  `GET /sub/{subId}` — confirmed against Happ's own subscription tooling, a
+  stock Happ install imports the same base64 share-link subscription every
+  other unrecognized client gets, and treats the `happ` JSON as an opaque
+  file download instead. That JSON is only served from the explicit
+  `GET /sub/{subId}/happ` endpoint, for admins who want to experiment with
+  it deliberately (e.g. via a custom app-catalog deeplink).
 - **Assignments** — which template profile each subscriber (`subId`) uses.
   Unassigned subscribers use `"default"`. Hot-reloaded — reassigning a
   subscriber changes what they're served on their very next request.

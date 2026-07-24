@@ -17,8 +17,8 @@ import (
 	"github.com/irazin/3x-ui-subpage/internal/generator/clash"
 	"github.com/irazin/3x-ui-subpage/internal/generator/happ"
 	"github.com/irazin/3x-ui-subpage/internal/generator/incy"
-	"github.com/irazin/3x-ui-subpage/internal/generator/linkgen"
 	"github.com/irazin/3x-ui-subpage/internal/generator/mihomo"
+	"github.com/irazin/3x-ui-subpage/internal/generator/tmplctx"
 	"github.com/irazin/3x-ui-subpage/internal/generator/xrayjson"
 	"github.com/irazin/3x-ui-subpage/internal/resolver"
 	"github.com/irazin/3x-ui-subpage/internal/theme"
@@ -29,31 +29,25 @@ type Resolver interface {
 	Resolve(ctx context.Context, subID string) (domain.Subscription, error)
 }
 
-// LinkGenerator builds Xray share links / the base64 subscription body for
-// a subscriber's assigned profile.
-type LinkGenerator interface {
-	BuildLink(mc domain.MatchedClient, profile string) (string, error)
-	BuildSubscription(clients []domain.MatchedClient, profile string) (string, error)
-}
-
 // XrayJSONGenerator builds the full xray-core client JSON config for a
-// subscriber's assigned profile.
+// subscriber's assigned profile, from already-parsed canonical share links
+// (see internal/generator/tmplctx).
 type XrayJSONGenerator interface {
-	Build(clients []domain.MatchedClient, profile string) (string, error)
+	Build(clients []tmplctx.ClientContext, profile string) (string, error)
 }
 
 // YAMLGenerator builds a Clash/Mihomo config for a subscriber's assigned
 // profile (satisfied by both generator/clash.Generator and
 // generator/mihomo.Generator).
 type YAMLGenerator interface {
-	Build(clients []domain.MatchedClient, profile string) (string, error)
+	Build(clients []tmplctx.ClientContext, profile string) (string, error)
 }
 
 // RawGenerator builds a config in a format this project asserts no
 // authoritative schema for (Happ, Incy) — the admin-editable template owns
 // the output bytes entirely.
 type RawGenerator interface {
-	Build(clients []domain.MatchedClient, profile string) (string, error)
+	Build(clients []tmplctx.ClientContext, profile string) (string, error)
 }
 
 // ThemeRenderer renders the HTML subscription page and serves the active
@@ -81,7 +75,6 @@ type Deps struct {
 	Logger *slog.Logger
 
 	Resolver    Resolver
-	LinkGen     LinkGenerator
 	XrayJSON    XrayJSONGenerator
 	Clash       YAMLGenerator
 	Mihomo      YAMLGenerator
@@ -107,7 +100,6 @@ var (
 	_ YAMLGenerator      = (*mihomo.Generator)(nil)
 	_ RawGenerator       = (*happ.Generator)(nil)
 	_ RawGenerator       = (*incy.Generator)(nil)
-	_ LinkGenerator      = (*linkgen.Generator)(nil)
 	_ Resolver           = (*resolver.Resolver)(nil)
 	_ ThemeRenderer      = (*theme.Engine)(nil)
 	_ AppCatalog         = (*apps.Catalog)(nil)

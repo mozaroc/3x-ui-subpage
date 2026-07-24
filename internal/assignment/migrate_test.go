@@ -34,7 +34,7 @@ func TestMigrateLegacy_NoLegacyTableIsNoop(t *testing.T) {
 	}
 
 	s := New(db)
-	if p, err := s.Resolve("tok-bob", "xray_link"); err != nil || p != DefaultProfile {
+	if p, err := s.Resolve("tok-bob", "xray_json"); err != nil || p != DefaultProfile {
 		t.Errorf("expected default, got %q (err=%v)", p, err)
 	}
 }

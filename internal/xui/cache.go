@@ -20,12 +20,19 @@ type HostLister interface {
 	ListHosts(ctx context.Context) ([]HostGroup, error)
 }
 
+// SubLinkGetter is the subset of *Client that fetches a subscriber's
+// canonical, panel-rendered share links.
+type SubLinkGetter interface {
+	GetSubLinks(ctx context.Context, subID string) ([]string, error)
+}
+
 // upstreamLister is what CachedLister needs from its backing client — both
 // inbounds and hosts, fetched and cached independently. *Client and
 // *DynamicClient both satisfy this already.
 type upstreamLister interface {
 	InboundLister
 	HostLister
+	SubLinkGetter
 }
 
 // ttlCache caches one upstream fetch's result — success *or* failure — for
@@ -150,6 +157,16 @@ func (l *CachedLister) ListInbounds(ctx context.Context) ([]Inbound, error) {
 // if the TTL has elapsed.
 func (l *CachedLister) ListHosts(ctx context.Context) ([]HostGroup, error) {
 	return l.hosts.get(ctx, "hosts", l.upstream.ListHosts)
+}
+
+// GetSubLinks always calls straight through to upstream, uncached — unlike
+// ListInbounds/ListHosts, this is inherently per-subscriber rather than a
+// broadcast list, and not caching it means a panel-side config change
+// (Reality keys, Host overrides, xhttp settings) is reflected on the very
+// next request, matching this project's hot-reload convention everywhere
+// else admin-editable content is concerned.
+func (l *CachedLister) GetSubLinks(ctx context.Context, subID string) ([]string, error) {
+	return l.upstream.GetSubLinks(ctx, subID)
 }
 
 // Invalidate forces the next ListInbounds/ListHosts call to hit upstream

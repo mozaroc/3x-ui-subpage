@@ -18,7 +18,6 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/irazin/3x-ui-subpage/internal/domain"
 	"github.com/irazin/3x-ui-subpage/internal/generator/tmplcache"
 	"github.com/irazin/3x-ui-subpage/internal/generator/tmplctx"
 )
@@ -42,12 +41,14 @@ func New(db *sql.DB, format string) *Generator {
 	return &Generator{cache: cache}
 }
 
-// Build renders the config for every matched client using the subscriber's
-// assigned profile: generates every client's proxy entry, injects them
-// into the template's "proxies" key, and auto-populates every
-// "proxy-groups" entry, then validates the result parses as YAML before
-// returning it.
-func (g *Generator) Build(clients []domain.MatchedClient, profile string) (string, error) {
+// Build renders the config for every client using the subscriber's assigned
+// profile: generates every client's proxy entry, injects them into the
+// template's "proxies" key, and auto-populates every "proxy-groups" entry,
+// then validates the result parses as YAML before returning it. clients is
+// already-parsed from the panel's own canonical share links (see
+// internal/generator/tmplctx) -- this package never reconstructs connection
+// parameters itself.
+func (g *Generator) Build(clients []tmplctx.ClientContext, profile string) (string, error) {
 	content, err := g.cache.Get(profile, "")
 	if err != nil {
 		return "", fmt.Errorf("yamlgen: load template: %w", err)
@@ -58,7 +59,7 @@ func (g *Generator) Build(clients []domain.MatchedClient, profile string) (strin
 		return "", fmt.Errorf("yamlgen: parse template: %w", err)
 	}
 
-	if err := injectClash(&doc, tmplctx.FromMatchedClients(clients)); err != nil {
+	if err := injectClash(&doc, clients); err != nil {
 		return "", fmt.Errorf("yamlgen: inject proxies: %w", err)
 	}
 

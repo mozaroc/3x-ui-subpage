@@ -1,24 +1,24 @@
-// Package tmplctx flattens a domain.MatchedClient into the plain struct
-// every config-generator template (Xray links, Xray-core JSON, Clash,
-// Mihomo) renders against, so the field set stays identical no matter which
-// output format an administrator is editing.
+// Package tmplctx parses 3x-ui's own canonical share-link strings (as
+// returned by the panel's /panel/api/clients/subLinks/{subId} endpoint)
+// into the plain struct every config-generator template (Xray-core JSON,
+// Clash, Mihomo, Happ, Incy) renders against. This project never
+// reconstructs a share link itself — the panel's string is parsed, not
+// rebuilt, so every connection parameter (including ones this project
+// doesn't know about yet) survives intact.
 package tmplctx
 
-import (
-	"strings"
-
-	"github.com/irazin/3x-ui-subpage/internal/domain"
-)
-
 // ClientContext is the data made available to generator templates for one
-// matched client.
+// canonical share link.
 type ClientContext struct {
 	Protocol string
 	UUID     string
 	Password string
 	Method   string
-	Email    string
-	Remark   string
+	// Email is not carried by a share link at all (it's an account-level
+	// field, not a connection parameter) -- kept only so a custom
+	// admin-authored template referencing .Email doesn't break; always "".
+	Email  string
+	Remark string
 
 	Server string
 	Port   int
@@ -28,7 +28,7 @@ type ClientContext struct {
 	Security string
 
 	SNI         string
-	ALPN        string // comma-joined
+	ALPN        string // comma-joined, matching 3x-ui's own convention
 	Fingerprint string
 	Insecure    bool
 	PublicKey   string
@@ -38,61 +38,36 @@ type ClientContext struct {
 	Path        string
 	Host        string
 	ServiceName string
-	HeaderType  string
+	// HeaderType has no equivalent share-link query parameter to parse it
+	// back from -- kept for template back-compat; always "".
+	HeaderType string
+
+	// RawParams holds every query parameter (vless/trojan/shadowsocks) or
+	// JSON key (vmess) from the canonical link, verbatim and unfiltered.
+	// This is the forward-compatibility mechanism: any parameter 3x-ui
+	// adds tomorrow (xhttp's mode/extra/x_padding_bytes, ECH's ech,
+	// pinned-cert's pcs, whatever comes next) is reachable from a template
+	// as e.g. {{.RawParams.extra}} with zero code changes here.
+	RawParams map[string]string
 }
 
-// FromMatchedClient flattens mc into a ClientContext.
-func FromMatchedClient(mc domain.MatchedClient) ClientContext {
-	remark := combineName(mc.Remark, mc.Client.Email)
-	return ClientContext{
-		Protocol:    string(mc.Protocol),
-		UUID:        mc.Client.ID,
-		Password:    mc.Client.Password,
-		Method:      mc.Client.Method,
-		Email:       mc.Client.Email,
-		Remark:      remark,
-		Server:      mc.Server,
-		Port:        mc.Port,
-		Flow:        mc.Client.Flow,
-		Network:     string(mc.Stream.Network),
-		Security:    string(mc.Stream.Security),
-		SNI:         mc.Stream.TLS.SNI,
-		ALPN:        strings.Join(mc.Stream.TLS.ALPN, ","),
-		Fingerprint: mc.Stream.TLS.Fingerprint,
-		Insecure:    mc.Stream.TLS.Insecure,
-		PublicKey:   mc.Stream.TLS.PublicKey,
-		ShortID:     mc.Stream.TLS.ShortID,
-		SpiderX:     mc.Stream.TLS.SpiderX,
-		Path:        mc.Stream.Transport.Path,
-		Host:        mc.Stream.Transport.Host,
-		ServiceName: mc.Stream.Transport.ServiceName,
-		HeaderType:  mc.Stream.Transport.HeaderType,
-	}
+// Entry pairs one panel-provided canonical share link with its parsed
+// ClientContext. Raw is always present, even when ParseErr != nil — a
+// caller that only needs the verbatim string (subscription body,
+// direct-link display, QR) never loses it just because this project's
+// parser doesn't yet understand some new link shape.
+type Entry struct {
+	Raw      string
+	Context  ClientContext
+	ParseErr error
 }
 
-// FromMatchedClients flattens a slice.
-func FromMatchedClients(clients []domain.MatchedClient) []ClientContext {
-	out := make([]ClientContext, len(clients))
-	for i, mc := range clients {
-		out[i] = FromMatchedClient(mc)
+// ParseEntries parses every link, never dropping one even on failure.
+func ParseEntries(links []string) []Entry {
+	out := make([]Entry, len(links))
+	for i, link := range links {
+		cc, err := ParseShareLink(link)
+		out[i] = Entry{Raw: link, Context: cc, ParseErr: err}
 	}
 	return out
-}
-
-// combineName builds "<inbound name> + <client name>", the display name
-// every generator format renders each proxy entry under. Degrades to
-// whichever half is non-empty if the other is missing (a client with no
-// email, or an inbound with no remark set) rather than emitting a stray
-// " + ". This also disambiguates the previously-common case of one client
-// assigned to several inbounds, where every entry used to render under the
-// exact same name (just the client's email) with no way to tell them apart.
-func combineName(inboundName, clientName string) string {
-	switch {
-	case inboundName == "":
-		return clientName
-	case clientName == "":
-		return inboundName
-	default:
-		return inboundName + " + " + clientName
-	}
 }

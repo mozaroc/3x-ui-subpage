@@ -4,67 +4,69 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/irazin/3x-ui-subpage/internal/domain"
+	"github.com/irazin/3x-ui-subpage/internal/generator/tmplctx"
 )
 
-type fakeLinkBuilder struct {
-	fail map[int]bool
-}
-
-func (f fakeLinkBuilder) BuildLink(mc domain.MatchedClient, profile string) (string, error) {
-	if f.fail[mc.InboundID] {
-		return "", errors.New("unsupported protocol")
-	}
-	return string(mc.Protocol) + "://" + profile, nil
-}
-
-func TestBuild_OneViewPerClient(t *testing.T) {
-	clients := []domain.MatchedClient{
-		{InboundID: 1, Remark: "a", Protocol: domain.ProtocolVLESS},
-		{InboundID: 2, Remark: "b", Protocol: domain.ProtocolTrojan},
+func TestBuild_OneViewPerEntryInOrder(t *testing.T) {
+	entries := []tmplctx.Entry{
+		{Raw: "vless://a", Context: tmplctx.ClientContext{Remark: "a", Protocol: "vless"}},
+		{Raw: "trojan://b", Context: tmplctx.ClientContext{Remark: "b", Protocol: "trojan"}},
 	}
 
-	views := Build("tok-abc", clients, "default", fakeLinkBuilder{}, nil)
+	views := Build("tok-abc", entries)
 
 	if len(views) != 2 {
 		t.Fatalf("expected 2 views, got %d", len(views))
 	}
-	if views[0].Link != "vless://default" || views[0].Tag != "a" {
+	if views[0].Index != 0 || views[0].Link != "vless://a" || views[0].Tag != "a" || views[0].Protocol != "vless" {
 		t.Errorf("unexpected first view: %+v", views[0])
 	}
-	if views[0].QRPngURL != "/sub/tok-abc/link/1/qr.png" {
+	if views[1].Index != 1 || views[1].Link != "trojan://b" {
+		t.Errorf("unexpected second view: %+v", views[1])
+	}
+	if views[0].QRPngURL != "/sub/tok-abc/link/0/qr.png" {
 		t.Errorf("unexpected qr png url: %q", views[0].QRPngURL)
 	}
-	if views[0].ConfigURL != "/sub/tok-abc/link/1/config.json" {
+	if views[0].QRSVGURL != "/sub/tok-abc/link/0/qr.svg" {
+		t.Errorf("unexpected qr svg url: %q", views[0].QRSVGURL)
+	}
+	if views[0].ConfigURL != "/sub/tok-abc/link/0/config.json" {
 		t.Errorf("unexpected config url: %q", views[0].ConfigURL)
 	}
 }
 
-func TestBuild_SkipsFailingClientsViaOnError(t *testing.T) {
-	clients := []domain.MatchedClient{
-		{InboundID: 1, Protocol: domain.ProtocolVLESS},
-		{InboundID: 2, Protocol: domain.ProtocolTrojan},
+// TestBuild_UnparseableEntryStillShowsRawLink confirms an entry this
+// project's parser doesn't understand still surfaces its verbatim string
+// (copy/QR keep working) even though Tag/Protocol/ConfigURL degrade --
+// never silently drop a link the panel actually gave a client just because
+// our own parser doesn't recognize it.
+func TestBuild_UnparseableEntryStillShowsRawLink(t *testing.T) {
+	entries := []tmplctx.Entry{
+		{Raw: "hysteria2://whatever", ParseErr: errors.New("unsupported scheme")},
 	}
 
-	var failed []int
-	views := Build("tok-abc", clients, "default", fakeLinkBuilder{fail: map[int]bool{1: true}}, func(mc domain.MatchedClient, err error) {
-		failed = append(failed, mc.InboundID)
-	})
+	views := Build("tok-abc", entries)
 
 	if len(views) != 1 {
-		t.Fatalf("expected 1 surviving view, got %d: %+v", len(views), views)
+		t.Fatalf("expected 1 view even for an unparseable entry, got %d", len(views))
 	}
-	if views[0].InboundID != 2 {
-		t.Errorf("expected the non-failing client to survive, got inbound %d", views[0].InboundID)
+	v := views[0]
+	if v.Link != "hysteria2://whatever" {
+		t.Errorf("expected raw link preserved, got %q", v.Link)
 	}
-	if len(failed) != 1 || failed[0] != 1 {
-		t.Errorf("expected onError called once for inbound 1, got %+v", failed)
+	if v.Tag != "" || v.Protocol != "" {
+		t.Errorf("expected Tag/Protocol to degrade to empty for an unparseable entry, got %+v", v)
+	}
+	if v.QRPngURL == "" || v.QRSVGURL == "" {
+		t.Errorf("expected QR urls to still work off the raw link, got %+v", v)
+	}
+	if v.ConfigURL != "" {
+		t.Errorf("expected ConfigURL to degrade to empty (needs parsed fields), got %q", v.ConfigURL)
 	}
 }
 
-func TestBuild_NilOnErrorIsSafe(t *testing.T) {
-	clients := []domain.MatchedClient{{InboundID: 1, Protocol: domain.ProtocolVLESS}}
-	views := Build("tok-abc", clients, "default", fakeLinkBuilder{fail: map[int]bool{1: true}}, nil)
+func TestBuild_EmptyEntriesYieldsEmptyViews(t *testing.T) {
+	views := Build("tok-abc", nil)
 	if len(views) != 0 {
 		t.Fatalf("expected 0 views, got %d", len(views))
 	}

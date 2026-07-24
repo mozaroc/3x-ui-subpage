@@ -11,7 +11,6 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/irazin/3x-ui-subpage/internal/domain"
 	"github.com/irazin/3x-ui-subpage/internal/generator/tmplcache"
 	"github.com/irazin/3x-ui-subpage/internal/generator/tmplctx"
 	"github.com/irazin/3x-ui-subpage/internal/generator/tmplfuncs"
@@ -38,17 +37,19 @@ func New(db *sql.DB) *Generator {
 	return &Generator{cache: cache}
 }
 
-// Build renders the full config for every matched client using the
-// subscriber's assigned profile, and validates the result is well-formed
-// JSON before returning it.
-func (g *Generator) Build(clients []domain.MatchedClient, profile string) (string, error) {
+// Build renders the full config for every client using the subscriber's
+// assigned profile, and validates the result is well-formed JSON before
+// returning it. clients is already-parsed from the panel's own canonical
+// share links (see internal/generator/tmplctx) -- this package never
+// reconstructs connection parameters itself.
+func (g *Generator) Build(clients []tmplctx.ClientContext, profile string) (string, error) {
 	tmpl, err := g.cache.Get(profile, "")
 	if err != nil {
 		return "", fmt.Errorf("xrayjson: load template: %w", err)
 	}
 
 	var sb strings.Builder
-	if err := tmpl.Execute(&sb, context{Clients: tmplctx.FromMatchedClients(clients)}); err != nil {
+	if err := tmpl.Execute(&sb, context{Clients: clients}); err != nil {
 		return "", fmt.Errorf("xrayjson: render: %w", err)
 	}
 

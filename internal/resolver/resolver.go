@@ -5,6 +5,7 @@ package resolver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/irazin/3x-ui-subpage/internal/domain"
@@ -19,6 +20,7 @@ var ErrNotFound = errors.New("resolver: subscription not found")
 type Lister interface {
 	ListInbounds(ctx context.Context) ([]xui.Inbound, error)
 	ListHosts(ctx context.Context) ([]xui.HostGroup, error)
+	GetSubLinks(ctx context.Context, subID string) ([]string, error)
 }
 
 // Resolver resolves subscription tokens against a panel's inbound list.
@@ -56,9 +58,19 @@ func (r *Resolver) Resolve(ctx context.Context, subID string) (domain.Subscripti
 		return domain.Subscription{}, ErrNotFound
 	}
 
+	// The panel's own canonical share links are the source of truth for
+	// every connection parameter (see internal/generator/tmplctx) — this
+	// project never reconstructs them itself, so a failure here fails the
+	// whole resolve rather than degrading gracefully.
+	links, err := r.lister.GetSubLinks(ctx, subID)
+	if err != nil {
+		return domain.Subscription{}, fmt.Errorf("resolver: get sub links: %w", err)
+	}
+
 	sub := domain.Subscription{
 		SubID:   subID,
 		Clients: matches,
+		Links:   links,
 	}
 
 	var anyEnabled bool

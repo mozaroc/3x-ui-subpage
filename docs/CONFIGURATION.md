@@ -41,23 +41,31 @@ bearer-token-only.
   every file (`layout.html`, `partials/*.html`, `pages/subscription.html`,
   `static/**`). Editing a file's content or a theme's metadata takes effect
   on the next request — no restart.
-- **Templates** — the Xray-link/Xray-JSON/Clash/Mihomo/Happ/Incy generator
-  templates, keyed by `(format, profile, protocol)`. Create a new profile by
-  saving a template under a new profile name; a profile missing a template
-  for a given format/protocol falls back to `"default"`. Hot-reloaded.
+- **Templates** — the Xray-JSON/Clash/Mihomo/Happ/Incy generator templates,
+  keyed by `(format, profile, protocol)`. Create a new profile by saving a
+  template under a new profile name; a profile missing a template for a
+  given format/protocol falls back to `"default"`. Hot-reloaded. **There is
+  no Xray share-link (vless/vmess/trojan/ss) template** — this project
+  fetches 3x-ui's own canonical share-link strings directly from the panel
+  (`GET /panel/api/clients/subLinks/{subId}`) and uses them verbatim,
+  parsing them only to feed the Xray-JSON/Clash/Mihomo/Happ/Incy
+  generators; it deliberately never reconstructs a share link itself, so
+  every connection parameter the panel produces (including future ones this
+  project doesn't know about yet) survives intact.
   **Happ and Incy templates are a special case**: those two clients have no
   publicly-documented wire format this project asserts as authoritative, so
-  unlike Clash/Mihomo/Xray (whose dialect is well-known), the admin-authored
-  `happ`/`incy` templates fully control the output bytes with no schema
-  validation applied. Verify the shipped example template against your
-  installed client version before relying on it. Note that the real Happ
-  app is deliberately **not** auto-routed to this format on plain
-  `GET /sub/{subId}` — confirmed against Happ's own subscription tooling, a
-  stock Happ install imports the same base64 share-link subscription every
-  other unrecognized client gets, and treats the `happ` JSON as an opaque
-  file download instead. That JSON is only served from the explicit
-  `GET /sub/{subId}/happ` endpoint, for admins who want to experiment with
-  it deliberately (e.g. via a custom app-catalog deeplink).
+  unlike Clash/Mihomo/Xray-JSON (whose dialect is well-known), the
+  admin-authored `happ`/`incy` templates fully control the output bytes
+  with no schema validation applied. Verify the shipped example template
+  against your installed client version before relying on it. Note that
+  the real Happ app is deliberately **not** auto-routed to the `happ`
+  format on plain `GET /sub/{subId}` — confirmed against Happ's own
+  subscription tooling, a stock Happ install imports the same base64
+  share-link subscription every other unrecognized client gets, and treats
+  the `happ` JSON as an opaque file download instead. That JSON is only
+  served from the explicit `GET /sub/{subId}/happ` endpoint, for admins who
+  want to experiment with it deliberately (e.g. via a custom app-catalog
+  deeplink).
 - **Routing** — GEOIP/geosite/domain/domain-suffix/domain-keyword/regex/
   CIDR/IP-range/process/protocol/port/DNS/custom rules, keyed by
   `(profile, sort_order)`. Exposed to every generator template as `.Rules`
@@ -86,10 +94,13 @@ bearer-token-only.
   every profile that has a template for that type; picking one is what
   used to require the separate Assignments page. Unpicked client types use
   `"default"`. Hot-reloaded — reassigning a subscriber changes what they're
-  served on their very next request. The detail page also lists a direct
-  connection link (share-link URI, copy button, QR code, and a
-  single-inbound config download) for every one of that user's synced
-  inbounds, alongside the whole-subscription URL/QR.
+  served on their very next request. **Xray's own connection links are not
+  templated at all** — every direct connection link, and the classic
+  base64 subscription body, is 3x-ui's own canonical share-link string,
+  fetched from the panel and shown verbatim (copy button, QR code, and a
+  per-link config download), never reconstructed by this service. Only the
+  full xray-core JSON config, Clash, Mihomo, Happ, and Incy formats are
+  admin-templated.
 - **Sync** (`/admin/sync`, and the sync history on each user's detail page)
   — every push to 3x-ui is queued, retried with backoff on failure
   (terminally failed after 8 attempts, manually retriable from either
@@ -160,8 +171,9 @@ INSERT INTO settings (key, value, updated_at) VALUES
 INSERT INTO templates (format, profile, protocol, content, updated_at)
   VALUES ('mihomo', 'gaming', '', '<your gaming mihomo yaml>', unixepoch());
 
--- client_type is one of: xray, clash, mihomo, happ, incy (xray covers both
--- the xray_link and xray_json template formats under one profile choice)
+-- client_type is one of: xray, clash, mihomo, happ, incy ("xray" only
+-- governs the xray_json full-config template -- share links are 3x-ui's
+-- own canonical strings, fetched directly, never templated by this project)
 INSERT INTO template_assignments (sub_id, client_type, profile, updated_at)
   VALUES ('the-subscribers-subid', 'mihomo', 'gaming', unixepoch());
 

@@ -9,7 +9,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/irazin/3x-ui-subpage/internal/domain"
+	"github.com/irazin/3x-ui-subpage/internal/generator/tmplctx"
 )
 
 // readShippedTemplate loads this project's own default template for format
@@ -71,9 +71,9 @@ func insertRule(t *testing.T, db *sql.DB, profile, typ, value, outbound string) 
 	}
 }
 
-func oneClient() []domain.MatchedClient {
-	return []domain.MatchedClient{
-		{Protocol: domain.ProtocolVLESS, Remark: "node-1", Server: "vpn.example.com", Port: 443, Client: domain.ClientAccount{ID: "uuid-1", Email: "node-1"}},
+func oneClient() []tmplctx.ClientContext {
+	return []tmplctx.ClientContext{
+		{Protocol: "vless", Remark: "node-1", Server: "vpn.example.com", Port: 443, UUID: "uuid-1"},
 	}
 }
 
@@ -87,8 +87,8 @@ func TestBuild_IncludesClientsAndRules(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if !strings.Contains(out, `"name":"node-1 + node-1"`) {
-		t.Errorf("expected combined inbound+client name in output, got: %s", out)
+	if !strings.Contains(out, `"name":"node-1"`) {
+		t.Errorf("expected client remark in output, got: %s", out)
 	}
 	if !strings.Contains(out, `"type":"geoip"`) {
 		t.Errorf("expected routing rule in output, got: %s", out)
@@ -100,24 +100,23 @@ func TestBuild_ShippedHappTemplate_ProducesValidXrayCoreShapedJSON(t *testing.T)
 	insertTemplate(t, db, "happ", "default", readShippedTemplate(t, "happ"))
 	insertRule(t, db, "default", "geoip", "CN", "direct")
 
-	clients := []domain.MatchedClient{
+	clients := []tmplctx.ClientContext{
 		{
 			Remark:   `evil " remark`,
-			Protocol: domain.ProtocolVLESS,
+			Protocol: "vless",
 			Server:   "vpn.example.com",
 			Port:     443,
-			Client:   domain.ClientAccount{ID: "uuid-1", Email: "alice", Flow: "xtls-rprx-vision"},
-			Stream: domain.StreamSettings{
-				Network:  domain.NetworkTCP,
-				Security: domain.SecurityReality,
-				TLS:      domain.TLSSettings{SNI: "example.com", Fingerprint: "chrome", PublicKey: "pk", ShortID: "sid"},
-			},
+			UUID:     "uuid-1",
+			Flow:     "xtls-rprx-vision",
+			Network:  "tcp",
+			Security: "reality",
+			SNI:      "example.com", Fingerprint: "chrome", PublicKey: "pk", ShortID: "sid",
 		},
 		{
-			Protocol: domain.ProtocolTrojan,
+			Protocol: "trojan",
 			Server:   "vpn2.example.com",
 			Port:     8443,
-			Client:   domain.ClientAccount{Password: "pw", Email: "bob"},
+			Password: "pw",
 		},
 	}
 
@@ -163,7 +162,7 @@ func TestBuild_ShippedHappTemplate_ProducesValidXrayCoreShapedJSON(t *testing.T)
 	}
 
 	first := parsed[0]
-	if want := "evil \" remark + alice"; first.Remarks != want {
+	if want := `evil " remark`; first.Remarks != want {
 		t.Errorf("expected remarks %q with quote intact, got %q", want, first.Remarks)
 	}
 	if len(first.Outbounds) < 1 || first.Outbounds[0].Protocol != "vless" {

@@ -96,6 +96,14 @@ func (d *DynamicClient) ListHosts(ctx context.Context) ([]HostGroup, error) {
 	return c.ListHosts(ctx)
 }
 
+func (d *DynamicClient) GetSubLinks(ctx context.Context, subID string) ([]string, error) {
+	c, err := d.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return c.GetSubLinks(ctx, subID)
+}
+
 func (d *DynamicClient) GetClient(ctx context.Context, email string) (ManagedClient, bool, error) {
 	c, err := d.client(ctx)
 	if err != nil {

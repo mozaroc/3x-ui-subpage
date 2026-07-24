@@ -28,11 +28,12 @@ const (
 type Network string
 
 const (
-	NetworkTCP  Network = "tcp"
-	NetworkKCP  Network = "kcp"
-	NetworkWS   Network = "ws"
-	NetworkHTTP Network = "http"
-	NetworkGRPC Network = "grpc"
+	NetworkTCP   Network = "tcp"
+	NetworkKCP   Network = "kcp"
+	NetworkWS    Network = "ws"
+	NetworkHTTP  Network = "http"
+	NetworkGRPC  Network = "grpc"
+	NetworkXHTTP Network = "xhttp"
 )
 
 // TLSSettings carries the fields needed to build TLS/Reality share links and
@@ -141,4 +142,11 @@ type Subscription struct {
 	ExpiresAt *time.Time // nil = never
 	Traffic   TrafficStats
 	Clients   []MatchedClient
+
+	// Links holds the panel's own canonical share-link strings for this
+	// subscriber, verbatim -- one per client per configured Host/CDN front.
+	// This project never reconstructs share links itself; see
+	// internal/generator/tmplctx for parsing these back into structured
+	// fields when a generator (Clash/Mihomo/xray-json) needs them.
+	Links []string
 }

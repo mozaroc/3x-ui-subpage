@@ -59,16 +59,22 @@ changes via `sqlite3` directly.
 | `GET /sub/{subId}/happ` | Happ config (admin-defined template, no built-in schema) |
 | `GET /sub/{subId}/incy` | Incy config (admin-defined template, no built-in schema) |
 | `GET /sub/{subId}/qr.png` \| `/qr.svg` | QR code for the subscription URL |
-| `GET /sub/{subId}/link/{inboundId}` | Direct connection link (share-link URI) for a single inbound |
-| `GET /sub/{subId}/link/{inboundId}/qr.png` \| `/qr.svg` | QR code for that single inbound's link |
-| `GET /sub/{subId}/link/{inboundId}/config.json` | Single-inbound full xray-core config download |
+| `GET /sub/{subId}/link/{index}` | One canonical share link (3x-ui's own string, verbatim) by its position in the subscriber's link list |
+| `GET /sub/{subId}/link/{index}/qr.png` \| `/qr.svg` | QR code for that single link |
+| `GET /sub/{subId}/link/{index}/config.json` | Single-link full xray-core config download |
 | `GET /api/v1/subscription/{subId}` | JSON view of the resolved subscription |
 | `GET /api/v1/applications` | JSON application catalog |
 | `GET /healthz` | Liveness check |
 
-Every format-specific endpoint renders using the subscriber's assigned
-template profile for that client type (table `template_assignments`, keyed
-by `(sub_id, client_type)`; `"default"` if unassigned).
+The Xray share links themselves (the base64 subscription body, and every
+`/link/{index}` response) are **3x-ui's own canonical strings**, fetched
+directly from the panel (`GET /panel/api/clients/subLinks/{subId}`) and
+returned verbatim — this service never reconstructs a share link itself.
+Every other format-specific endpoint (Clash, Mihomo, Happ, Incy,
+`xray.json`) parses those same links and renders using the subscriber's
+assigned template profile for that client type (table
+`template_assignments`, keyed by `(sub_id, client_type)`; `"default"` if
+unassigned).
 
 `{subId}` is the same `subId` field 3x-ui already stores per client — this
 service doesn't mint its own tokens, so existing 3x-ui subscription links
@@ -140,7 +146,8 @@ management (with synchronization status monitoring). See
 ## Phase status
 
 Phases 1-5 are complete: 3x-ui API client, subscriber resolution, Xray
-share-link + full config generation, Clash/Mihomo YAML generation,
+share-link retrieval (3x-ui's own canonical links, fetched verbatim) + full
+config generation, Clash/Mihomo YAML generation,
 Happ/Incy config generation with an admin-editable routing-rule engine
 (GEOIP/geosite/domains/regex/CIDR/process/DNS/custom rules), HTML theme
 engine, JSON-derived application catalog, QR generation, per-subscriber

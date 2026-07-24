@@ -138,6 +138,54 @@ func TestClient_ListHosts(t *testing.T) {
 	}
 }
 
+func TestClient_GetSubLinks(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/panel/api/clients/subLinks/tok-abc" {
+			http.NotFound(w, r)
+			return
+		}
+		writeEnvelope(w, []string{
+			"vless://uuid@vpn.example.com:443?security=tls&type=ws#remark",
+			"vless://uuid@cdn.example.com:443?security=tls&type=ws#remark-cdn",
+		})
+	}))
+	defer srv.Close()
+
+	c, err := New(srv.URL, "key", 5*time.Second, 3, 10*time.Millisecond)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	links, err := c.GetSubLinks(t.Context(), "tok-abc")
+	if err != nil {
+		t.Fatalf("GetSubLinks: %v", err)
+	}
+	if len(links) != 2 {
+		t.Fatalf("expected 2 links, got %d: %+v", len(links), links)
+	}
+	if links[0] != "vless://uuid@vpn.example.com:443?security=tls&type=ws#remark" {
+		t.Errorf("expected the panel's link verbatim, got %q", links[0])
+	}
+}
+
+func TestClient_GetSubLinks_EscapesSubID(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.EscapedPath() != "/panel/api/clients/subLinks/tok%2Fwith%2Fslashes" {
+			t.Errorf("expected path-escaped subID in request path, got %q", r.URL.EscapedPath())
+		}
+		writeEnvelope(w, []string{})
+	}))
+	defer srv.Close()
+
+	c, err := New(srv.URL, "key", 5*time.Second, 3, 10*time.Millisecond)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if _, err := c.GetSubLinks(t.Context(), "tok/with/slashes"); err != nil {
+		t.Fatalf("GetSubLinks: %v", err)
+	}
+}
+
 func TestClient_AddClient(t *testing.T) {
 	var gotBody addClientRequest
 
@@ -459,5 +507,9 @@ func (f *fakeInboundLister) ListInbounds(ctx context.Context) ([]Inbound, error)
 }
 
 func (f *fakeInboundLister) ListHosts(ctx context.Context) ([]HostGroup, error) {
+	return nil, nil
+}
+
+func (f *fakeInboundLister) GetSubLinks(ctx context.Context, subID string) ([]string, error) {
 	return nil, nil
 }

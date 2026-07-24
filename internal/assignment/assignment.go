@@ -17,17 +17,20 @@ const DefaultProfile = "default"
 
 // ClientType is one admin-facing template-assignment selector. Formats
 // lists which "templates" table format(s) this client type's profile
-// applies to -- 1:1 for everything except Xray, which spans both its
-// share-link and full-JSON template formats under one selector.
+// applies to.
 type ClientType struct {
 	Key     string
 	Label   string
 	Formats []string
 }
 
-// ClientTypes are every known client type, in display order.
+// ClientTypes are every known client type, in display order. Xray's
+// share-link format has no template/profile of its own — this project
+// fetches 3x-ui's own canonical share links rather than templating them
+// (see internal/generator/tmplctx) — so "xray" governs only the full
+// xray-core JSON config format.
 var ClientTypes = []ClientType{
-	{Key: "xray", Label: "Xray", Formats: []string{"xray_link", "xray_json"}},
+	{Key: "xray", Label: "Xray", Formats: []string{"xray_json"}},
 	{Key: "clash", Label: "Clash", Formats: []string{"clash"}},
 	{Key: "mihomo", Label: "Mihomo", Formats: []string{"mihomo"}},
 	{Key: "happ", Label: "Happ", Formats: []string{"happ"}},

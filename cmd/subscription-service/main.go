@@ -27,7 +27,6 @@ import (
 	"github.com/irazin/3x-ui-subpage/internal/generator/clash"
 	"github.com/irazin/3x-ui-subpage/internal/generator/happ"
 	"github.com/irazin/3x-ui-subpage/internal/generator/incy"
-	"github.com/irazin/3x-ui-subpage/internal/generator/linkgen"
 	"github.com/irazin/3x-ui-subpage/internal/generator/mihomo"
 	"github.com/irazin/3x-ui-subpage/internal/generator/xrayjson"
 	"github.com/irazin/3x-ui-subpage/internal/httpserver"
@@ -120,7 +119,6 @@ func main() {
 	deps := httpserver.Deps{
 		Logger:      logger,
 		Resolver:    sub,
-		LinkGen:     linkgen.New(db),
 		XrayJSON:    xrayjson.New(db),
 		Clash:       clash.New(db),
 		Mihomo:      mihomo.New(db),

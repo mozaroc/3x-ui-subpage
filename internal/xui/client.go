@@ -271,6 +271,21 @@ func ignoreNotFound(err error) error {
 	return err
 }
 
+// GetSubLinks fetches every canonical share link 3x-ui itself would render
+// for the clients matching subID (one per client per configured Host/CDN
+// front) — the panel's own connection-parameter rendering, verbatim. This
+// project deliberately never reconstructs share links itself; see
+// internal/generator/tmplctx for what parses these strings back into
+// structured fields for Clash/Mihomo/xray-json generation.
+func (c *Client) GetSubLinks(ctx context.Context, subID string) ([]string, error) {
+	var links []string
+	path := "/panel/api/clients/subLinks/" + url.PathEscape(subID)
+	if err := c.doJSON(ctx, http.MethodGet, path, &links); err != nil {
+		return nil, err
+	}
+	return links, nil
+}
+
 // GetClient fetches one client by email. Returns found=false (no error) if
 // the panel reports the client doesn't exist.
 func (c *Client) GetClient(ctx context.Context, email string) (client ManagedClient, found bool, err error) {

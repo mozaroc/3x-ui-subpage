@@ -9,11 +9,13 @@
 // administrator only added directly via SQL (e.g. hand-written profiles or
 // assignments).
 //
-// Convention for adding template profiles beyond "default" without an
-// admin UI: for Clash/Mihomo/the full Xray JSON config, the file's stem
-// becomes the profile name (e.g. "gaming.yaml.tmpl" -> profile "gaming");
-// for the per-protocol Xray link templates, put profile variants in a
-// subdirectory named after the profile (e.g. "xray/gaming/vless.tmpl").
+// Convention for adding template profiles beyond "default": the file's stem
+// becomes the profile name (e.g. "gaming.yaml.tmpl" -> profile "gaming"),
+// one file per profile, no per-protocol subdirectories -- every remaining
+// generator format (xray_json, clash, mihomo, happ, incy) is
+// protocol-agnostic. This project never admin-templates raw Xray share
+// links (vless/vmess/trojan/ss); those are the 3x-ui panel's own canonical
+// strings, fetched at request time, never stored or templated here.
 package importer
 
 import (
@@ -40,7 +42,7 @@ func Import(db *sql.DB, webDir string) error {
 	if err := importThemes(db, filepath.Join(webDir, "themes"), now); err != nil {
 		return err
 	}
-	if err := importXrayTemplates(db, filepath.Join(webDir, "templates", "xray"), now); err != nil {
+	if err := importYAMLTemplates(db, filepath.Join(webDir, "templates", "xray_json"), "xray_json", now); err != nil {
 		return err
 	}
 	if err := importYAMLTemplates(db, filepath.Join(webDir, "templates", "clash"), "clash", now); err != nil {
@@ -374,80 +376,6 @@ func pruneOrphaned(tx *sql.Tx, old map[manifestKey]int64, current map[manifestKe
 		}
 	}
 	return nil
-}
-
-func importXrayTemplates(db *sql.DB, dir string, now int64) error {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return fmt.Errorf("importer: read %s: %w", dir, err)
-	}
-
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("importer: begin tx: %w", err)
-	}
-	defer tx.Rollback()
-
-	oldManifest, err := loadManifest(tx, []string{"xray_link", "xray_json"})
-	if err != nil {
-		return err
-	}
-	current := make(map[manifestKey]bool)
-
-	for _, e := range entries {
-		name := e.Name()
-
-		switch {
-		case e.IsDir():
-			// Subdirectory = additional profile: <profile>/<protocol>.tmpl
-			profile := name
-			protoEntries, err := os.ReadDir(filepath.Join(dir, name))
-			if err != nil {
-				return fmt.Errorf("importer: read profile dir %s: %w", name, err)
-			}
-			for _, pe := range protoEntries {
-				if pe.IsDir() || !strings.HasSuffix(pe.Name(), ".tmpl") {
-					continue
-				}
-				protocol := strings.TrimSuffix(pe.Name(), ".tmpl")
-				content, err := os.ReadFile(filepath.Join(dir, name, pe.Name()))
-				if err != nil {
-					return fmt.Errorf("importer: read %s/%s: %w", name, pe.Name(), err)
-				}
-				k := manifestKey{"xray_link", profile, protocol}
-				if err := upsertTemplatePreservingEdits(tx, k, string(content), oldManifest, current, now); err != nil {
-					return fmt.Errorf("importer: xray_link %s/%s: %w", profile, protocol, err)
-				}
-			}
-
-		case name == "full-config.json.tmpl":
-			content, err := os.ReadFile(filepath.Join(dir, name))
-			if err != nil {
-				return fmt.Errorf("importer: read %s: %w", name, err)
-			}
-			k := manifestKey{"xray_json", "default", ""}
-			if err := upsertTemplatePreservingEdits(tx, k, string(content), oldManifest, current, now); err != nil {
-				return fmt.Errorf("importer: xray_json: %w", err)
-			}
-
-		case strings.HasSuffix(name, ".tmpl"):
-			protocol := strings.TrimSuffix(name, ".tmpl")
-			content, err := os.ReadFile(filepath.Join(dir, name))
-			if err != nil {
-				return fmt.Errorf("importer: read %s: %w", name, err)
-			}
-			k := manifestKey{"xray_link", "default", protocol}
-			if err := upsertTemplatePreservingEdits(tx, k, string(content), oldManifest, current, now); err != nil {
-				return fmt.Errorf("importer: xray_link default/%s: %w", protocol, err)
-			}
-		}
-	}
-
-	if err := pruneOrphaned(tx, oldManifest, current); err != nil {
-		return err
-	}
-
-	return tx.Commit()
 }
 
 type routingRuleJSON struct {

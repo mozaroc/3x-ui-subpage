@@ -89,10 +89,6 @@ func TestImport_TemplatesRoundTrip(t *testing.T) {
 	cases := []struct {
 		format, profile, protocol string
 	}{
-		{"xray_link", "default", "vless"},
-		{"xray_link", "default", "vmess"},
-		{"xray_link", "default", "trojan"},
-		{"xray_link", "default", "shadowsocks"},
 		{"xray_json", "default", ""},
 		{"clash", "default", ""},
 		{"mihomo", "default", ""},
@@ -162,36 +158,49 @@ func TestImport_PrunesOrphanedTemplateAfterFileRemoved(t *testing.T) {
 	db := openTestDB(t)
 	webDir := copyWebDir(t)
 
+	// A synthetic extra clash profile -- no shipped format has more than one
+	// profile file, so this is added purely to exercise the
+	// add-then-remove-a-profile-file path.
+	gamingPath := filepath.Join(webDir, "templates", "clash", "gaming.yaml.tmpl")
+	if err := os.WriteFile(gamingPath, []byte("proxies: []\n"), 0o644); err != nil {
+		t.Fatalf("write gaming.yaml.tmpl: %v", err)
+	}
+
 	if err := Import(db, webDir); err != nil {
 		t.Fatalf("first Import: %v", err)
 	}
 
 	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM templates WHERE format='xray_link' AND profile='default' AND protocol='shadowsocks'`).Scan(&count); err != nil {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM templates WHERE format='clash' AND profile='gaming'`).Scan(&count); err != nil {
 		t.Fatalf("count: %v", err)
 	}
 	if count != 1 {
-		t.Fatalf("expected shadowsocks template seeded before removal, got count=%d", count)
+		t.Fatalf("expected gaming template seeded before removal, got count=%d", count)
 	}
 
-	if err := os.Remove(filepath.Join(webDir, "templates", "xray", "shadowsocks.tmpl")); err != nil {
-		t.Fatalf("remove shadowsocks.tmpl: %v", err)
+	if err := os.Remove(gamingPath); err != nil {
+		t.Fatalf("remove gaming.yaml.tmpl: %v", err)
 	}
 	if err := Import(db, webDir); err != nil {
 		t.Fatalf("second Import: %v", err)
 	}
 
-	if err := db.QueryRow(`SELECT COUNT(*) FROM templates WHERE format='xray_link' AND profile='default' AND protocol='shadowsocks'`).Scan(&count); err != nil {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM templates WHERE format='clash' AND profile='gaming'`).Scan(&count); err != nil {
 		t.Fatalf("count after removal: %v", err)
 	}
 	if count != 0 {
-		t.Errorf("expected orphaned shadowsocks template to be pruned after re-import, got count=%d", count)
+		t.Errorf("expected orphaned gaming template to be pruned after re-import, got count=%d", count)
 	}
 }
 
 func TestImport_DoesNotPruneAdminEditedRow(t *testing.T) {
 	db := openTestDB(t)
 	webDir := copyWebDir(t)
+
+	gamingPath := filepath.Join(webDir, "templates", "clash", "gaming.yaml.tmpl")
+	if err := os.WriteFile(gamingPath, []byte("proxies: []\n"), 0o644); err != nil {
+		t.Fatalf("write gaming.yaml.tmpl: %v", err)
+	}
 
 	if err := Import(db, webDir); err != nil {
 		t.Fatalf("first Import: %v", err)
@@ -200,19 +209,19 @@ func TestImport_DoesNotPruneAdminEditedRow(t *testing.T) {
 	// Simulate an admin hand-editing this template via /admin after import.
 	if _, err := db.Exec(`
 		UPDATE templates SET content = 'admin-customized', updated_at = updated_at + 1
-		WHERE format='xray_link' AND profile='default' AND protocol='shadowsocks'`); err != nil {
+		WHERE format='clash' AND profile='gaming'`); err != nil {
 		t.Fatalf("simulate admin edit: %v", err)
 	}
 
-	if err := os.Remove(filepath.Join(webDir, "templates", "xray", "shadowsocks.tmpl")); err != nil {
-		t.Fatalf("remove shadowsocks.tmpl: %v", err)
+	if err := os.Remove(gamingPath); err != nil {
+		t.Fatalf("remove gaming.yaml.tmpl: %v", err)
 	}
 	if err := Import(db, webDir); err != nil {
 		t.Fatalf("second Import: %v", err)
 	}
 
 	var content string
-	if err := db.QueryRow(`SELECT content FROM templates WHERE format='xray_link' AND profile='default' AND protocol='shadowsocks'`).Scan(&content); err != nil {
+	if err := db.QueryRow(`SELECT content FROM templates WHERE format='clash' AND profile='gaming'`).Scan(&content); err != nil {
 		t.Fatalf("expected admin-edited row to survive re-import: %v", err)
 	}
 	if content != "admin-customized" {
@@ -279,8 +288,8 @@ func TestImport_ReimportRefreshesUntouchedTemplateOnUpstreamChange(t *testing.T)
 		t.Fatalf("first Import: %v", err)
 	}
 
-	vlessPath := filepath.Join(webDir, "templates", "xray", "vless.tmpl")
-	if err := os.WriteFile(vlessPath, []byte("updated-vless-template-content"), 0o644); err != nil {
+	xrayJSONPath := filepath.Join(webDir, "templates", "xray_json", "default.tmpl")
+	if err := os.WriteFile(xrayJSONPath, []byte(`{"updated":true}`), 0o644); err != nil {
 		t.Fatalf("simulate upstream template change: %v", err)
 	}
 
@@ -289,11 +298,11 @@ func TestImport_ReimportRefreshesUntouchedTemplateOnUpstreamChange(t *testing.T)
 	}
 
 	var content string
-	if err := db.QueryRow(`SELECT content FROM templates WHERE format = 'xray_link' AND profile = 'default' AND protocol = 'vless'`).Scan(&content); err != nil {
-		t.Fatalf("query vless template: %v", err)
+	if err := db.QueryRow(`SELECT content FROM templates WHERE format = 'xray_json' AND profile = 'default'`).Scan(&content); err != nil {
+		t.Fatalf("query xray_json template: %v", err)
 	}
-	if content != "updated-vless-template-content" {
-		t.Errorf("expected untouched vless template to pick up the new shipped content, got %q", content)
+	if content != `{"updated":true}` {
+		t.Errorf("expected untouched xray_json template to pick up the new shipped content, got %q", content)
 	}
 }
 

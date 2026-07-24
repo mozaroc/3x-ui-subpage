@@ -7,7 +7,11 @@ The subscription service is a standalone Go binary that sits in front of a
 resolves subscription tokens (`subId`) to a set of proxy configurations and
 renders them as an HTML page, Clash/Mihomo YAML, or an Xray share-link
 subscription, depending on the requesting client and the subscriber's
-assigned template profile. Every admin-editable surface — settings, app
+assigned template profile. The Xray share links themselves are never
+reconstructed by this project — they're 3x-ui's own canonical strings,
+fetched from the panel's REST API and used verbatim, parsed only to feed
+the formats that need structured fields (Clash/Mihomo/xray-json/Happ/Incy).
+Every admin-editable surface — settings, app
 catalog, themes, generator templates, routing rules, per-user assignments,
 and now user accounts themselves (synced out to 3x-ui automatically) —
 lives in one SQLite database, edited either through a server-rendered
@@ -75,12 +79,31 @@ tiny bootstrap file naming that database's path.
   relying on this for production traffic — the endpoint *shape* (client-
   centric, email-keyed) is a deliberate, well-designed API on 3.5.0, but
   nothing guarantees an older/forked panel exposes the same one.
+
+  `GetSubLinks` (`/panel/api/clients/subLinks/{subId}`, same bearer token,
+  same envelope decoding) fetches the panel's own canonical share links for
+  a subscriber, verbatim — confirmed present in 3x-ui v3.5.0's own
+  `internal/web/controller/client.go`. This is the one place this project
+  deliberately does *not* try to be clever: every connection parameter
+  (host overrides, Reality keys, xhttp settings, whatever the panel adds
+  next) comes from the panel's own rendering, never reconstructed here.
+  Unlike `ListInbounds`/`ListHosts`, `CachedLister` does **not** cache this
+  call — it's inherently per-subscriber rather than a broadcast list, and
+  skipping the cache means a panel-side config change shows up on the very
+  next request.
 - **`internal/domain`** — protocol-agnostic core types (`MatchedClient`,
   `Subscription`, `TrafficStats`, `Status`). Every other layer depends on
-  this, never on `internal/xui`'s raw API shapes.
+  this, never on `internal/xui`'s raw API shapes. `Subscription.Links`
+  carries the panel's canonical share-link strings alongside `Clients`
+  (used for traffic/status/expiry, unrelated to connection parameters).
 - **`internal/resolver`** — turns a `subId` into a `domain.Subscription` by
   scanning the (cached) inbound list for every client whose `subId` matches,
-  aggregating traffic/expiry/status.
+  aggregating traffic/expiry/status, and fetching that subscriber's
+  canonical share links via `GetSubLinks`. A `GetSubLinks` failure fails the
+  whole resolve (the same severity as an `ListInbounds` failure) — unlike
+  `ListHosts`, which is a genuine enhancement that degrades gracefully,
+  there's no other source of truth for connection parameters to fall back
+  to.
 - **`internal/store`** — opens the single SQLite database (pure-Go
   `modernc.org/sqlite` driver, WAL journal mode), applies the embedded
   schema (`CREATE TABLE IF NOT EXISTS`, no general migration framework — the
@@ -96,18 +119,35 @@ tiny bootstrap file naming that database's path.
   `template_assignments`, keyed by `(sub_id, client_type)`), the mechanism
   behind per-user, per-client-type template assignment. `ClientTypes` maps
   each admin-facing client type (Xray, Clash, Mihomo, Happ, Incy) to the
-  `templates` table format(s) it governs — Xray is the one case where a
-  single client type spans two formats (`xray_link` and `xray_json`) under
-  one profile choice. Subscribers with no row for a client type get
-  `"default"`. Also exposes `Set`/`ForSubID`/`DeleteAll` for the admin UI —
-  set directly on each user's create/edit page, not a separate page.
+  `templates` table format(s) it governs — "Xray" only governs `xray_json`
+  now (share links have no template at all — see `tmplctx` below).
+  Subscribers with no row for a client type get `"default"`. Also exposes
+  `Set`/`ForSubID`/`DeleteAll` for the admin UI — set directly on each
+  user's create/edit page, not a separate page.
 - **`internal/generator/*`** — render a resolved subscription into a client
   config format, using the subscriber's assigned profile:
-  - `linkgen` — Xray share links (`vless://`, `vmess://`, `trojan://`,
-    `ss://`) and the base64 subscription body.
-  - `xrayjson` — full xray-core client JSON config.
+  - `tmplctx` — **not** a renderer but the seam every other generator
+    depends on: `ParseShareLink`/`ParseEntries` parse 3x-ui's own canonical
+    share-link strings (vless/vmess/trojan/ss) into `ClientContext`, the
+    flat struct every template below sees. Every named field a template can
+    reference (`UUID`, `Server`, `SNI`, `ALPN`, ...) is parsed straight out
+    of the link; anything without a named field (xhttp's `mode`/`extra`/
+    `x_padding_bytes`, ECH, pinned-cert hashes, whatever 3x-ui adds next)
+    still survives in `RawParams map[string]string`, unfiltered, so a
+    template can reach it (`{{.RawParams.extra}}`) without a code change
+    here. An entry that fails to parse (a link shape this project doesn't
+    understand yet) is dropped from generation with a logged warning, but
+    the raw string itself is untouched everywhere else (subscription body,
+    direct-link display, QR) — those never parse at all.
+  - `xrayjson` — full xray-core client JSON config; splices `RawParams.extra`
+    verbatim into `xhttpSettings` when present, for byte-accurate xhttp
+    support without modeling every sub-field individually.
   - `clash` / `mihomo` — YAML configs (thin wrappers around the shared
     `yamlgen` rendering engine — same mechanics, different `format` string).
+    `yamlgen/inject.go` builds each proxy entry from `ClientContext`
+    directly; xhttp gets a minimal `xhttp-opts: {path, host}` (deliberately
+    not chasing every xhttp sub-field into mihomo's YAML schema — that's
+    what `xrayjson`'s raw splice is for).
   - `happ` / `incy` — thin wrappers around the shared `rawgen` rendering
     engine, for the Happ and Incy clients. Unlike Clash/Mihomo/Xray, this
     project has no verified, authoritative knowledge of either client's wire
@@ -116,12 +156,17 @@ tiny bootstrap file naming that database's path.
     trust model as every other format's template but without an assumed
     schema to validate against. Also injects `.Rules` (from
     `internal/routing`) into the template context alongside `.Clients`.
-  - Shared support packages: `tmplctx` (flattens a `MatchedClient` into the
-    field set every template sees), `tmplcache` (loads+caches templates from
+  - Shared support packages: `tmplcache` (loads+caches templates from
     the `templates` table keyed by `(format, profile, protocol)`, falling
     back to the `"default"` profile and re-parsing only when a row's
     `updated_at` changes), `tmplfuncs` (shared template funcs: `urlquery`,
-    `b64`, `join`).
+    `b64`, `join`, `jsonstr`, `splitJSON`).
+
+  There is no `linkgen` package anymore — hand-building Xray share links
+  (and the admin-editable per-protocol templates that used to drive it) was
+  removed outright once the panel's own canonical strings became the
+  source of truth; see `httpserver.writeXrayLinks`, which is now a
+  two-line join+base64 of `Subscription.Links`.
 - **`internal/templatestore`** — the admin-write counterpart to
   `tmplcache`'s hot-reloaded reads: plain CRUD over the `templates` table,
   used only by the admin UI.
@@ -210,16 +255,17 @@ independently testable against an in-memory SQLite database, without a real
 
 1. Middleware validates `subId` (bounded length, alnum/hyphen only).
 2. `resolver.Resolve` fetches inbounds via the cached lister, matches
-   clients by `subId`, builds a `domain.Subscription`.
-3. `assignment.Store.Resolve` looks up the subscriber's template profile for
-   whichever format is about to be rendered (`"default"` if unassigned) —
-   each client type (Xray/Clash/Mihomo/Happ/Incy) resolves independently.
-4. Content negotiation on `User-Agent` picks a renderer:
-   - browser → `theme.Engine.Render` (HTML page; app catalog and support
-     info also loaded here, no profile involved)
-   - Clash/Mihomo/stash → `clash`/`mihomo` generator, using the profile
-   - everything else → `linkgen.BuildSubscription`, using the profile
-5. Response is gzip-compressed and logged.
+   clients by `subId`, fetches the subscriber's canonical share links via
+   `GetSubLinks`, and builds a `domain.Subscription{Clients, Links}`.
+3. Content negotiation on `User-Agent` picks a renderer:
+   - browser → `theme.Engine.Render` (HTML page; app catalog, support info,
+     and `connlink.Build` for the direct-connection-links card)
+   - Clash/Mihomo/stash → `tmplctx.ParseEntries(sub.Links)` filtered to
+     successfully-parsed contexts, fed to the `clash`/`mihomo` generator
+     using the subscriber's assigned profile (`assignment.Store.Resolve`)
+   - everything else → `sub.Links` joined and base64-encoded verbatim, no
+     profile, no parsing, no generation at all
+4. Response is gzip-compressed and logged.
 
 ## Write path (admin → 3x-ui)
 

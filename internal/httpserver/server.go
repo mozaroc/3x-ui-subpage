@@ -46,7 +46,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/qr.png", s.handleQRPNG)
 		r.Get("/qr.svg", s.handleQRSVG)
 
-		r.Route("/link/{inboundID}", func(r chi.Router) {
+		r.Route("/link/{index}", func(r chi.Router) {
 			r.Get("/", s.handleLink)
 			r.Get("/qr.png", s.handleLinkQRPNG)
 			r.Get("/qr.svg", s.handleLinkQRSVG)

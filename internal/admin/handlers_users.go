@@ -13,7 +13,7 @@ import (
 
 	"github.com/irazin/3x-ui-subpage/internal/assignment"
 	"github.com/irazin/3x-ui-subpage/internal/connlink"
-	"github.com/irazin/3x-ui-subpage/internal/domain"
+	"github.com/irazin/3x-ui-subpage/internal/generator/tmplctx"
 	"github.com/irazin/3x-ui-subpage/internal/sync"
 	"github.com/irazin/3x-ui-subpage/internal/users"
 	"github.com/irazin/3x-ui-subpage/internal/xui"
@@ -469,18 +469,11 @@ func (s *Server) handleUserDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Direct connection links are a display enhancement -- a failure to
-	// resolve them shouldn't take down the rest of the page.
+	// Direct connection links are the panel's own canonical share links,
+	// verbatim -- no profile, no generation, just parsed for display.
 	var connections []connlink.View
 	if resolveErr == nil {
-		xrayProfile, err := s.assignments.Resolve(u.SubID, "xray_link")
-		if err != nil {
-			s.logger.Warn("admin: resolve xray profile for connection links failed", "id", id, "err", err)
-		} else {
-			connections = connlink.Build(u.SubID, sub.Clients, xrayProfile, s.linkGen, func(mc domain.MatchedClient, err error) {
-				s.logger.Warn("admin: build connection link failed", "id", id, "inbound_id", mc.InboundID, "err", err)
-			})
-		}
+		connections = connlink.Build(u.SubID, tmplctx.ParseEntries(sub.Links))
 	}
 
 	_ = render(w, "page-user-detail", PageData{

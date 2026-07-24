@@ -14,7 +14,6 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/irazin/3x-ui-subpage/internal/domain"
 	"github.com/irazin/3x-ui-subpage/internal/generator/tmplcache"
 	"github.com/irazin/3x-ui-subpage/internal/generator/tmplctx"
 	"github.com/irazin/3x-ui-subpage/internal/generator/tmplfuncs"
@@ -44,9 +43,11 @@ func New(db *sql.DB, format string) *Generator {
 	return &Generator{cache: cache, rules: routing.New(db)}
 }
 
-// Build renders the config for every matched client using the subscriber's
-// assigned profile.
-func (g *Generator) Build(clients []domain.MatchedClient, profile string) (string, error) {
+// Build renders the config for every client using the subscriber's assigned
+// profile. clients is already-parsed from the panel's own canonical share
+// links (see internal/generator/tmplctx) -- this package never reconstructs
+// connection parameters itself.
+func (g *Generator) Build(clients []tmplctx.ClientContext, profile string) (string, error) {
 	tmpl, err := g.cache.Get(profile, "")
 	if err != nil {
 		return "", fmt.Errorf("rawgen: load template: %w", err)
@@ -58,7 +59,7 @@ func (g *Generator) Build(clients []domain.MatchedClient, profile string) (strin
 	}
 
 	var sb strings.Builder
-	ctx := context{Clients: tmplctx.FromMatchedClients(clients), Rules: rules}
+	ctx := context{Clients: clients, Rules: rules}
 	if err := tmpl.Execute(&sb, ctx); err != nil {
 		return "", fmt.Errorf("rawgen: render: %w", err)
 	}

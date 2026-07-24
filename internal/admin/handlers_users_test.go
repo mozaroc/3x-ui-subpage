@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -10,7 +11,6 @@ import (
 
 	"github.com/irazin/3x-ui-subpage/internal/domain"
 	"github.com/irazin/3x-ui-subpage/internal/sync"
-	"github.com/irazin/3x-ui-subpage/internal/templatestore"
 	"github.com/irazin/3x-ui-subpage/internal/users"
 	"github.com/irazin/3x-ui-subpage/internal/xui"
 )
@@ -235,23 +235,20 @@ func TestUsers_Delete_CleansUpTemplateAssignments(t *testing.T) {
 }
 
 func TestUserDetail_ShowsDirectConnectionLinks(t *testing.T) {
-	s, db := newTestServer(t)
+	s, _ := newTestServer(t)
 	cookie := loginAndGetCookie(t, s)
 	token := csrfTokenFor(t, s, cookie)
 
-	if err := templatestore.New(db).Put("xray_link", "default", "vless", "vless://{{.UUID}}@{{.Server}}:{{.Port}}"); err != nil {
-		t.Fatalf("seed xray_link template: %v", err)
-	}
-
 	id := createUserViaHandler(t, s, cookie, token, "heidi", "sub-heidi")
 
+	// The panel's own canonical link, verbatim -- no template, no
+	// generation, just parsed for display.
+	const canonicalLink = "vless://uuid-heidi@vpn.example.com:443?security=tls&type=tcp#my-inbound"
 	s.resolve = &fakeResolver{resolveFn: func(ctx context.Context, subID string) (domain.Subscription, error) {
 		return domain.Subscription{
 			SubID:  subID,
 			Status: domain.StatusActive,
-			Clients: []domain.MatchedClient{
-				{InboundID: 42, Remark: "my-inbound", Protocol: domain.ProtocolVLESS, Server: "vpn.example.com", Port: 443, Client: domain.ClientAccount{ID: "uuid-heidi"}},
-			},
+			Links:  []string{canonicalLink},
 		}, nil
 	}}
 
@@ -264,14 +261,14 @@ func TestUserDetail_ShowsDirectConnectionLinks(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "vless://uuid-heidi@vpn.example.com:443") {
-		t.Fatalf("expected page to render the connection link, got: %s", body)
+	if !strings.Contains(body, html.EscapeString(canonicalLink)) {
+		t.Fatalf("expected page to render the exact panel-provided link verbatim, got: %s", body)
 	}
-	if !strings.Contains(body, "/sub/sub-heidi/link/42/qr.png") {
-		t.Fatalf("expected page to reference the per-inbound qr endpoint, got: %s", body)
+	if !strings.Contains(body, "/sub/sub-heidi/link/0/qr.png") {
+		t.Fatalf("expected page to reference the per-link qr endpoint, got: %s", body)
 	}
-	if !strings.Contains(body, "/sub/sub-heidi/link/42/config.json") {
-		t.Fatalf("expected page to reference the per-inbound config download, got: %s", body)
+	if !strings.Contains(body, "/sub/sub-heidi/link/0/config.json") {
+		t.Fatalf("expected page to reference the per-link config download, got: %s", body)
 	}
 }
 

@@ -22,6 +22,10 @@ func (f *failingLister) ListHosts(ctx context.Context) ([]HostGroup, error) {
 	return nil, nil
 }
 
+func (f *failingLister) GetSubLinks(ctx context.Context, subID string) ([]string, error) {
+	return nil, nil
+}
+
 // TestCachedLister_CachesFailuresTooWithinTTL guards against a real bug:
 // only successes were cached, so a persistently unreachable/erroring panel
 // meant every single ListInbounds call — even several in the same request,
@@ -86,6 +90,10 @@ func (f *failingHostLister) ListHosts(ctx context.Context) ([]HostGroup, error) 
 	return f.hosts, f.hostErr
 }
 
+func (f *failingHostLister) GetSubLinks(ctx context.Context, subID string) ([]string, error) {
+	return nil, nil
+}
+
 // TestCachedLister_HostsCachedIndependentlyFromInbounds guards against the
 // two resources sharing one cache slot by accident after the ttlCache[T]
 // extraction — a failure fetching hosts must not be replayed for
@@ -112,6 +120,40 @@ func TestCachedLister_HostsCachedIndependentlyFromInbounds(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&upstream.inboundCalls); got != 1 {
 		t.Fatalf("expected exactly 1 upstream ListInbounds call, got %d", got)
+	}
+}
+
+type subLinkCountingLister struct {
+	*failingLister
+	linkCalls int32
+	links     []string
+	linksErr  error
+}
+
+func (f *subLinkCountingLister) GetSubLinks(ctx context.Context, subID string) ([]string, error) {
+	atomic.AddInt32(&f.linkCalls, 1)
+	return f.links, f.linksErr
+}
+
+// TestCachedLister_GetSubLinksNeverCached confirms GetSubLinks always hits
+// upstream, unlike ListInbounds/ListHosts -- it's per-subscriber, and not
+// caching it means a panel-side config change is reflected on the very next
+// request.
+func TestCachedLister_GetSubLinksNeverCached(t *testing.T) {
+	upstream := &subLinkCountingLister{failingLister: &failingLister{}, links: []string{"vless://fake"}}
+	cl := NewCachedLister(upstream, time.Hour)
+
+	for i := 0; i < 3; i++ {
+		links, err := cl.GetSubLinks(t.Context(), "tok")
+		if err != nil {
+			t.Fatalf("GetSubLinks: %v", err)
+		}
+		if len(links) != 1 || links[0] != "vless://fake" {
+			t.Fatalf("unexpected links: %+v", links)
+		}
+	}
+	if got := atomic.LoadInt32(&upstream.linkCalls); got != 3 {
+		t.Fatalf("expected 3 uncached upstream calls, got %d", got)
 	}
 }
 

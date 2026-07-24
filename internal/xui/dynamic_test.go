@@ -80,6 +80,31 @@ func TestDynamicClient_NoReloadWhenSettingsUnchanged(t *testing.T) {
 	}
 }
 
+func TestDynamicClient_GetSubLinks(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeEnvelope(w, []string{"vless://uuid@vpn.example.com:443?security=tls#remark"})
+	}))
+	defer srv.Close()
+
+	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	insertXUISetting(t, db, srv.URL, "key-one")
+	insertRequiredSubscriptionSetting(t, db)
+
+	d := NewDynamic(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	links, err := d.GetSubLinks(t.Context(), "tok-abc")
+	if err != nil {
+		t.Fatalf("GetSubLinks: %v", err)
+	}
+	if len(links) != 1 || links[0] != "vless://uuid@vpn.example.com:443?security=tls#remark" {
+		t.Fatalf("unexpected links: %+v", links)
+	}
+}
+
 func insertXUISetting(t *testing.T, db *sql.DB, baseURL, apiKey string) {
 	t.Helper()
 	value := `{"base_url":"` + baseURL + `","api_key":"` + apiKey + `","timeout":5000000000,"retry":{"max_attempts":2,"backoff":1000000}}`

@@ -1,16 +1,19 @@
 package httpserver
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/irazin/3x-ui-subpage/internal/connlink"
 	"github.com/irazin/3x-ui-subpage/internal/domain"
+	"github.com/irazin/3x-ui-subpage/internal/generator/tmplctx"
 	"github.com/irazin/3x-ui-subpage/internal/qrcode"
 	"github.com/irazin/3x-ui-subpage/internal/resolver"
 )
@@ -49,15 +52,23 @@ func (s *Server) resolveProfile(w http.ResponseWriter, subID, format string) (st
 	return profile, true
 }
 
-// findMatchedClient returns the matched client for inboundID within sub, if
-// any.
-func findMatchedClient(sub domain.Subscription, inboundID int) (domain.MatchedClient, bool) {
-	for _, mc := range sub.Clients {
-		if mc.InboundID == inboundID {
-			return mc, true
+// parsedContexts parses every one of sub's canonical share links and
+// returns only the ones that parsed successfully, logging a warning for
+// any that didn't -- an entry this project's parser doesn't yet understand
+// (a future panel feature) is dropped from generation rather than failing
+// the whole config, since the raw subscription body and direct-link list
+// never parse at all and are unaffected either way.
+func (s *Server) parsedContexts(sub domain.Subscription) []tmplctx.ClientContext {
+	entries := tmplctx.ParseEntries(sub.Links)
+	contexts := make([]tmplctx.ClientContext, 0, len(entries))
+	for _, e := range entries {
+		if e.ParseErr != nil {
+			s.deps.Logger.Warn("parse share link failed", "sub_id", sub.SubID, "err", e.ParseErr)
+			continue
 		}
+		contexts = append(contexts, e.Context)
 	}
-	return domain.MatchedClient{}, false
+	return contexts
 }
 
 // setSubscriptionUserinfo sets the de-facto standard header many clients
@@ -113,7 +124,7 @@ func (s *Server) handleXrayJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out, err := s.deps.XrayJSON.Build(sub.Clients, profile)
+	out, err := s.deps.XrayJSON.Build(s.parsedContexts(sub), profile)
 	if err != nil {
 		s.deps.Logger.Error("render xray json config failed", "sub_id", sub.SubID, "err", err)
 		http.Error(w, "failed to render config", http.StatusInternalServerError)
@@ -158,18 +169,11 @@ func (s *Server) handleIncy(w http.ResponseWriter, r *http.Request) {
 	s.writeRaw(w, sub, s.deps.Incy, "incy", "incy.json")
 }
 
+// writeXrayLinks writes 3x-ui's own canonical share links, verbatim,
+// joined and base64-encoded exactly like the classic subscription body --
+// no profile, no template, no reconstruction.
 func (s *Server) writeXrayLinks(w http.ResponseWriter, sub domain.Subscription) {
-	profile, ok := s.resolveProfile(w, sub.SubID, "xray_link")
-	if !ok {
-		return
-	}
-
-	body, err := s.deps.LinkGen.BuildSubscription(sub.Clients, profile)
-	if err != nil {
-		s.deps.Logger.Error("render xray links failed", "sub_id", sub.SubID, "err", err)
-		http.Error(w, "failed to render subscription", http.StatusInternalServerError)
-		return
-	}
+	body := base64.StdEncoding.EncodeToString([]byte(strings.Join(sub.Links, "\n")))
 	setSubscriptionUserinfo(w, sub)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write([]byte(body))
@@ -181,7 +185,7 @@ func (s *Server) writeYAML(w http.ResponseWriter, sub domain.Subscription, gen Y
 		return
 	}
 
-	out, err := gen.Build(sub.Clients, profile)
+	out, err := gen.Build(s.parsedContexts(sub), profile)
 	if err != nil {
 		s.deps.Logger.Error("render yaml config failed", "sub_id", sub.SubID, "err", err)
 		http.Error(w, "failed to render config", http.StatusInternalServerError)
@@ -199,7 +203,7 @@ func (s *Server) writeRaw(w http.ResponseWriter, sub domain.Subscription, gen Ra
 		return
 	}
 
-	out, err := gen.Build(sub.Clients, profile)
+	out, err := gen.Build(s.parsedContexts(sub), profile)
 	if err != nil {
 		s.deps.Logger.Error("render raw config failed", "sub_id", sub.SubID, "err", err)
 		http.Error(w, "failed to render config", http.StatusInternalServerError)
@@ -227,17 +231,7 @@ func (s *Server) renderHTML(w http.ResponseWriter, sub domain.Subscription) {
 		Custom:   s.deps.Support.Custom,
 	}
 
-	// Direct connection links are a display enhancement -- a failure to
-	// resolve the assigned profile shouldn't take down the whole page, so
-	// it degrades to an empty list rather than erroring out.
-	var connections []connlink.View
-	if profile, err := s.deps.Assignments.Resolve(sub.SubID, "xray_link"); err != nil {
-		s.deps.Logger.Warn("resolve xray profile for connection links failed", "sub_id", sub.SubID, "err", err)
-	} else {
-		connections = connlink.Build(sub.SubID, sub.Clients, profile, s.deps.LinkGen, func(mc domain.MatchedClient, err error) {
-			s.deps.Logger.Warn("build connection link failed", "sub_id", sub.SubID, "inbound_id", mc.InboundID, "err", err)
-		})
-	}
+	connections := connlink.Build(sub.SubID, tmplctx.ParseEntries(sub.Links))
 
 	view := buildSubscriptionView(sub, catalogApps, support, s.deps.PublicURL, connections)
 
@@ -249,28 +243,18 @@ func (s *Server) renderHTML(w http.ResponseWriter, sub domain.Subscription) {
 }
 
 // handleLink writes the raw share-link URI (e.g. "vless://...") for a
-// single inbound.
+// single link index, verbatim -- 3x-ui's own canonical string, byte for
+// byte, never reconstructed.
 func (s *Server) handleLink(w http.ResponseWriter, r *http.Request) {
 	sub, ok := s.resolveOrFail(w, r)
 	if !ok {
 		return
 	}
-	mc, ok := s.findLinkTarget(w, r, sub)
+	link, ok := s.findLink(w, r, sub)
 	if !ok {
 		return
 	}
 
-	profile, ok := s.resolveProfile(w, sub.SubID, "xray_link")
-	if !ok {
-		return
-	}
-
-	link, err := s.deps.LinkGen.BuildLink(mc, profile)
-	if err != nil {
-		s.deps.Logger.Error("render connection link failed", "sub_id", sub.SubID, "inbound_id", mc.InboundID, "err", err)
-		http.Error(w, "failed to render connection link", http.StatusInternalServerError)
-		return
-	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write([]byte(link))
 }
@@ -280,26 +264,14 @@ func (s *Server) handleLinkQRPNG(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	mc, ok := s.findLinkTarget(w, r, sub)
+	link, ok := s.findLink(w, r, sub)
 	if !ok {
-		return
-	}
-
-	profile, ok := s.resolveProfile(w, sub.SubID, "xray_link")
-	if !ok {
-		return
-	}
-
-	link, err := s.deps.LinkGen.BuildLink(mc, profile)
-	if err != nil {
-		s.deps.Logger.Error("render connection link failed", "sub_id", sub.SubID, "inbound_id", mc.InboundID, "err", err)
-		http.Error(w, "failed to render connection link", http.StatusInternalServerError)
 		return
 	}
 
 	png, err := qrcode.GeneratePNG(link, s.qrOptions())
 	if err != nil {
-		s.deps.Logger.Error("generate connection qr png failed", "sub_id", sub.SubID, "inbound_id", mc.InboundID, "err", err)
+		s.deps.Logger.Error("generate connection qr png failed", "sub_id", sub.SubID, "err", err)
 		http.Error(w, "failed to generate qr code", http.StatusInternalServerError)
 		return
 	}
@@ -312,26 +284,14 @@ func (s *Server) handleLinkQRSVG(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	mc, ok := s.findLinkTarget(w, r, sub)
+	link, ok := s.findLink(w, r, sub)
 	if !ok {
-		return
-	}
-
-	profile, ok := s.resolveProfile(w, sub.SubID, "xray_link")
-	if !ok {
-		return
-	}
-
-	link, err := s.deps.LinkGen.BuildLink(mc, profile)
-	if err != nil {
-		s.deps.Logger.Error("render connection link failed", "sub_id", sub.SubID, "inbound_id", mc.InboundID, "err", err)
-		http.Error(w, "failed to render connection link", http.StatusInternalServerError)
 		return
 	}
 
 	svg, err := qrcode.GenerateSVG(link, s.qrOptions())
 	if err != nil {
-		s.deps.Logger.Error("generate connection qr svg failed", "sub_id", sub.SubID, "inbound_id", mc.InboundID, "err", err)
+		s.deps.Logger.Error("generate connection qr svg failed", "sub_id", sub.SubID, "err", err)
 		http.Error(w, "failed to generate qr code", http.StatusInternalServerError)
 		return
 	}
@@ -340,14 +300,22 @@ func (s *Server) handleLinkQRSVG(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleLinkConfig writes a single-client full xray-core JSON config for
-// one inbound, downloadable independently of the whole-subscription config.
+// one link index, downloadable independently of the whole-subscription
+// config. Parses just this one link on demand.
 func (s *Server) handleLinkConfig(w http.ResponseWriter, r *http.Request) {
 	sub, ok := s.resolveOrFail(w, r)
 	if !ok {
 		return
 	}
-	mc, ok := s.findLinkTarget(w, r, sub)
+	link, ok := s.findLink(w, r, sub)
 	if !ok {
+		return
+	}
+
+	cc, err := tmplctx.ParseShareLink(link)
+	if err != nil {
+		s.deps.Logger.Warn("parse share link for config download failed", "sub_id", sub.SubID, "err", err)
+		http.Error(w, "no downloadable config available for this link", http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -356,31 +324,30 @@ func (s *Server) handleLinkConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out, err := s.deps.XrayJSON.Build([]domain.MatchedClient{mc}, profile)
+	out, err := s.deps.XrayJSON.Build([]tmplctx.ClientContext{cc}, profile)
 	if err != nil {
-		s.deps.Logger.Error("render single-inbound xray json config failed", "sub_id", sub.SubID, "inbound_id", mc.InboundID, "err", err)
+		s.deps.Logger.Error("render single-link xray json config failed", "sub_id", sub.SubID, "err", err)
 		http.Error(w, "failed to render config", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="inbound-%d-config.json"`, mc.InboundID))
+	w.Header().Set("Content-Disposition", `attachment; filename="config.json"`)
 	_, _ = w.Write([]byte(out))
 }
 
-// findLinkTarget parses the {inboundID} URL param and looks it up among
-// sub's matched clients, writing 400/404 as appropriate.
-func (s *Server) findLinkTarget(w http.ResponseWriter, r *http.Request, sub domain.Subscription) (domain.MatchedClient, bool) {
-	inboundID, err := strconv.Atoi(chi.URLParam(r, "inboundID"))
-	if err != nil {
-		http.Error(w, "invalid inbound id", http.StatusBadRequest)
-		return domain.MatchedClient{}, false
+// findLink parses the {index} URL param and bounds-checks it against sub's
+// canonical links, writing 400/404 as appropriate.
+func (s *Server) findLink(w http.ResponseWriter, r *http.Request, sub domain.Subscription) (string, bool) {
+	index, err := strconv.Atoi(chi.URLParam(r, "index"))
+	if err != nil || index < 0 || index >= len(sub.Links) {
+		if err != nil {
+			http.Error(w, "invalid link index", http.StatusBadRequest)
+		} else {
+			http.NotFound(w, r)
+		}
+		return "", false
 	}
-	mc, ok := findMatchedClient(sub, inboundID)
-	if !ok {
-		http.NotFound(w, r)
-		return domain.MatchedClient{}, false
-	}
-	return mc, true
+	return sub.Links[index], true
 }
 
 func (s *Server) handleQRPNG(w http.ResponseWriter, r *http.Request) {

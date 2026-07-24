@@ -33,7 +33,7 @@ func TestResolve_AssignedProfile(t *testing.T) {
 	}
 
 	s := New(db)
-	profile, err := s.Resolve("tok-alice", "xray_link")
+	profile, err := s.Resolve("tok-alice", "xray_json")
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestResolve_NoAssignmentDefaultsToDefault(t *testing.T) {
 	db := openTestDB(t)
 	s := New(db)
 
-	profile, err := s.Resolve("tok-unknown", "xray_link")
+	profile, err := s.Resolve("tok-unknown", "xray_json")
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestResolve_UnknownFormatErrors(t *testing.T) {
 	}
 }
 
-func TestResolve_XrayLinkAndXrayJSONShareOneClientType(t *testing.T) {
+func TestResolve_XrayClientTypeGovernsXrayJSON(t *testing.T) {
 	db := openTestDB(t)
 	s := New(db)
 
@@ -72,7 +72,7 @@ func TestResolve_XrayLinkAndXrayJSONShareOneClientType(t *testing.T) {
 		t.Fatalf("Set: %v", err)
 	}
 
-	for _, format := range []string{"xray_link", "xray_json"} {
+	for _, format := range []string{"xray_json"} {
 		profile, err := s.Resolve("tok-bob", format)
 		if err != nil {
 			t.Fatalf("Resolve(%s): %v", format, err)
@@ -129,8 +129,8 @@ func TestSet_IndependentPerClientType(t *testing.T) {
 		t.Fatalf("Set clash: %v", err)
 	}
 
-	if p, err := s.Resolve("tok-bob", "xray_link"); err != nil || p != "gaming" {
-		t.Errorf("xray_link: expected gaming, got %q (err=%v)", p, err)
+	if p, err := s.Resolve("tok-bob", "xray_json"); err != nil || p != "gaming" {
+		t.Errorf("xray_json: expected gaming, got %q (err=%v)", p, err)
 	}
 	if p, err := s.Resolve("tok-bob", "clash"); err != nil || p != "minimal" {
 		t.Errorf("clash: expected minimal, got %q (err=%v)", p, err)
@@ -197,7 +197,7 @@ func TestDeleteAll_FallsBackToDefaultAcrossEveryClientType(t *testing.T) {
 		t.Fatalf("DeleteAll: %v", err)
 	}
 
-	if p, err := s.Resolve("tok-bob", "xray_link"); err != nil || p != DefaultProfile {
+	if p, err := s.Resolve("tok-bob", "xray_json"); err != nil || p != DefaultProfile {
 		t.Errorf("expected fallback to default after DeleteAll, got %q (err=%v)", p, err)
 	}
 	if p, err := s.Resolve("tok-bob", "clash"); err != nil || p != DefaultProfile {
@@ -219,7 +219,7 @@ func TestDeleteAll_DoesNotAffectOtherSubscribers(t *testing.T) {
 		t.Fatalf("DeleteAll: %v", err)
 	}
 
-	if p, err := s.Resolve("tok-alice", "xray_link"); err != nil || p != "minimal" {
+	if p, err := s.Resolve("tok-alice", "xray_json"); err != nil || p != "minimal" {
 		t.Errorf("expected tok-alice unaffected, got %q (err=%v)", p, err)
 	}
 }

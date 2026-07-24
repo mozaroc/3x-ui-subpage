@@ -16,6 +16,9 @@ type fakeLister struct {
 
 	hosts    []xui.HostGroup
 	hostsErr error
+
+	links    []string
+	linksErr error
 }
 
 func (f fakeLister) ListInbounds(ctx context.Context) ([]xui.Inbound, error) {
@@ -24,6 +27,10 @@ func (f fakeLister) ListInbounds(ctx context.Context) ([]xui.Inbound, error) {
 
 func (f fakeLister) ListHosts(ctx context.Context) ([]xui.HostGroup, error) {
 	return f.hosts, f.hostsErr
+}
+
+func (f fakeLister) GetSubLinks(ctx context.Context, subID string) ([]string, error) {
+	return f.links, f.linksErr
 }
 
 func inboundWithClient(id int, subID, email string, enable bool, totalGB, expiryMs, up, down int64) xui.Inbound {
@@ -70,9 +77,12 @@ func itoa(n int64) string {
 }
 
 func TestResolve_ActiveSubscription(t *testing.T) {
-	lister := fakeLister{inbounds: []xui.Inbound{
-		inboundWithClient(1, "tok", "alice", true, 10_000_000_000, 0, 1000, 2000),
-	}}
+	lister := fakeLister{
+		inbounds: []xui.Inbound{
+			inboundWithClient(1, "tok", "alice", true, 10_000_000_000, 0, 1000, 2000),
+		},
+		links: []string{"vless://uuid-alice@vpn.example.com:443?security=tls#alice"},
+	}
 	r := New(lister, "1.2.3.4")
 
 	sub, err := r.Resolve(context.Background(), "tok")
@@ -90,6 +100,26 @@ func TestResolve_ActiveSubscription(t *testing.T) {
 	}
 	if len(sub.Clients) != 1 {
 		t.Errorf("expected 1 matched client, got %d", len(sub.Clients))
+	}
+	if len(sub.Links) != 1 || sub.Links[0] != "vless://uuid-alice@vpn.example.com:443?security=tls#alice" {
+		t.Errorf("expected the panel's canonical link to be carried verbatim, got %+v", sub.Links)
+	}
+}
+
+// TestResolve_FailsWhenSubLinksFail confirms GetSubLinks is treated as
+// required (unlike ListHosts) -- the panel's canonical links are the sole
+// source of truth for connection parameters, so a failure to fetch them
+// fails the whole resolve rather than silently falling back to
+// self-reconstructed links.
+func TestResolve_FailsWhenSubLinksFail(t *testing.T) {
+	lister := fakeLister{
+		inbounds: []xui.Inbound{inboundWithClient(1, "tok", "alice", true, 0, 0, 0, 0)},
+		linksErr: errors.New("panel unreachable"),
+	}
+	r := New(lister, "1.2.3.4")
+
+	if _, err := r.Resolve(context.Background(), "tok"); err == nil {
+		t.Fatal("expected error when GetSubLinks fails")
 	}
 }
 

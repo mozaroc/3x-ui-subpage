@@ -14,8 +14,17 @@ import (
 	"github.com/irazin/3x-ui-subpage/internal/apps"
 	"github.com/irazin/3x-ui-subpage/internal/config"
 	"github.com/irazin/3x-ui-subpage/internal/domain"
+	"github.com/irazin/3x-ui-subpage/internal/generator/tmplctx"
 	"github.com/irazin/3x-ui-subpage/internal/resolver"
 )
+
+// sampleLink is a valid, parseable vless:// link used as sampleSubscription's
+// sole canonical share link across these tests -- real enough to exercise
+// tmplctx.ParseShareLink end to end (used by the Clash/Mihomo/Happ/Incy/
+// xray-json generation paths, and by the per-link config-download handler),
+// while still being simple to assert on verbatim (the raw subscription body/
+// direct-link paths never parse it at all).
+const sampleLink = "vless://uuid-1@vpn.example.com:443?security=tls&type=tcp#alice"
 
 type fakeResolver struct {
 	sub domain.Subscription
@@ -26,15 +35,6 @@ func (f fakeResolver) Resolve(ctx context.Context, subID string) (domain.Subscri
 	return f.sub, f.err
 }
 
-type fakeLinkGen struct{}
-
-func (fakeLinkGen) BuildLink(mc domain.MatchedClient, profile string) (string, error) {
-	return "vless://fake", nil
-}
-func (fakeLinkGen) BuildSubscription(clients []domain.MatchedClient, profile string) (string, error) {
-	return base64.StdEncoding.EncodeToString([]byte("vless://fake\n")), nil
-}
-
 // fakeConfigGen returns a fixed string for "default" profile and a distinct
 // one for any other profile, so tests can assert profile selection reached
 // the generator correctly.
@@ -43,7 +43,7 @@ type fakeConfigGen struct {
 	profileOut map[string]string
 }
 
-func (f fakeConfigGen) Build(clients []domain.MatchedClient, profile string) (string, error) {
+func (f fakeConfigGen) Build(clients []tmplctx.ClientContext, profile string) (string, error) {
 	if v, ok := f.profileOut[profile]; ok {
 		return v, nil
 	}
@@ -119,7 +119,6 @@ func testDeps(t *testing.T, sub domain.Subscription, resolveErr error) Deps {
 	return Deps{
 		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Resolver:    fakeResolver{sub: sub, err: resolveErr},
-		LinkGen:     fakeLinkGen{},
 		XrayJSON:    fakeConfigGen{out: `{"ok":true}`},
 		Clash:       fakeConfigGen{out: "proxies: []\n"},
 		Mihomo:      fakeConfigGen{out: "proxies: []\n"},
@@ -144,9 +143,7 @@ func sampleSubscription() domain.Subscription {
 		SubID:    "tok-abc",
 		Username: "alice",
 		Status:   domain.StatusActive,
-		Clients: []domain.MatchedClient{
-			{InboundID: 1, Remark: "inbound-1", Protocol: domain.ProtocolVLESS, Server: "vpn.example.com", Port: 443, Client: domain.ClientAccount{ID: "uuid-1", Email: "alice"}},
-		},
+		Links:    []string{sampleLink},
 	}
 }
 
@@ -244,7 +241,7 @@ func TestHandleSubscription_HappUAGetsStandardXrayLinks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected base64 xray-link body for a Happ UA, got: %s", rec.Body.String())
 	}
-	if !strings.Contains(string(decoded), "vless://fake") {
+	if !strings.Contains(string(decoded), sampleLink) {
 		t.Errorf("expected decoded body to contain the share link, got: %s", decoded)
 	}
 }
@@ -479,7 +476,7 @@ func TestHandleSubscription_UnassignedSubscriberGetsDefaultProfile(t *testing.T)
 
 func TestHandleLink_ReturnsRawShareLink(t *testing.T) {
 	srv := New(testDeps(t, sampleSubscription(), nil))
-	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc/link/1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc/link/0", nil)
 	rec := httptest.NewRecorder()
 
 	srv.Router().ServeHTTP(rec, req)
@@ -487,12 +484,12 @@ func TestHandleLink_ReturnsRawShareLink(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if rec.Body.String() != "vless://fake" {
+	if rec.Body.String() != sampleLink {
 		t.Errorf("expected raw share link body, got: %s", rec.Body.String())
 	}
 }
 
-func TestHandleLink_UnknownInboundIsNotFound(t *testing.T) {
+func TestHandleLink_OutOfRangeIndexIsNotFound(t *testing.T) {
 	srv := New(testDeps(t, sampleSubscription(), nil))
 	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc/link/999", nil)
 	rec := httptest.NewRecorder()
@@ -500,13 +497,13 @@ func TestHandleLink_UnknownInboundIsNotFound(t *testing.T) {
 	srv.Router().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for an inbound the subscriber doesn't have, got %d", rec.Code)
+		t.Fatalf("expected 404 for a link index the subscriber doesn't have, got %d", rec.Code)
 	}
 }
 
 func TestHandleLinkQRPNG(t *testing.T) {
 	srv := New(testDeps(t, sampleSubscription(), nil))
-	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc/link/1/qr.png", nil)
+	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc/link/0/qr.png", nil)
 	rec := httptest.NewRecorder()
 
 	srv.Router().ServeHTTP(rec, req)
@@ -524,7 +521,7 @@ func TestHandleLinkQRPNG(t *testing.T) {
 
 func TestHandleLinkQRSVG(t *testing.T) {
 	srv := New(testDeps(t, sampleSubscription(), nil))
-	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc/link/1/qr.svg", nil)
+	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc/link/0/qr.svg", nil)
 	rec := httptest.NewRecorder()
 
 	srv.Router().ServeHTTP(rec, req)
@@ -539,7 +536,7 @@ func TestHandleLinkQRSVG(t *testing.T) {
 
 func TestHandleLinkConfig_SingleClientDownload(t *testing.T) {
 	srv := New(testDeps(t, sampleSubscription(), nil))
-	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc/link/1/config.json", nil)
+	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc/link/0/config.json", nil)
 	rec := httptest.NewRecorder()
 
 	srv.Router().ServeHTTP(rec, req)
@@ -550,8 +547,22 @@ func TestHandleLinkConfig_SingleClientDownload(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"ok":true`) {
 		t.Errorf("unexpected body: %s", rec.Body.String())
 	}
-	if cd := rec.Header().Get("Content-Disposition"); !strings.Contains(cd, "inbound-1-config.json") {
-		t.Errorf("expected per-inbound filename, got Content-Disposition: %q", cd)
+	if cd := rec.Header().Get("Content-Disposition"); !strings.Contains(cd, "config.json") {
+		t.Errorf("expected a config.json filename, got Content-Disposition: %q", cd)
+	}
+}
+
+func TestHandleLinkConfig_UnparseableLinkReturns422(t *testing.T) {
+	deps := testDeps(t, sampleSubscription(), nil)
+	deps.Resolver = fakeResolver{sub: domain.Subscription{SubID: "tok-abc", Links: []string{"hysteria2://not-supported"}}}
+	srv := New(deps)
+
+	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc/link/0/config.json", nil)
+	rec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for a link this project's parser doesn't understand, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -569,10 +580,10 @@ func TestHandleSubscription_HTMLIncludesConnectionLinks(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "vless://fake") {
+	if !strings.Contains(rec.Body.String(), sampleLink) {
 		t.Errorf("expected page to include the connection link, got: %s", rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "/sub/tok-abc/link/1/qr.png") {
+	if !strings.Contains(rec.Body.String(), "/sub/tok-abc/link/0/qr.png") {
 		t.Errorf("expected page to include the connection's qr url, got: %s", rec.Body.String())
 	}
 }

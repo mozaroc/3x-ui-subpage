@@ -24,6 +24,7 @@
 {{else if eq $c.Security "reality"}}        ,"realitySettings": {"serverName": {{jsonstr $c.SNI}}, "publicKey": {{jsonstr $c.PublicKey}}, "shortId": {{jsonstr $c.ShortID}}, "fingerprint": {{jsonstr $c.Fingerprint}}{{if $c.SpiderX}}, "spiderX": {{jsonstr $c.SpiderX}}{{end}}}
 {{end}}{{if eq $c.Network "ws"}}        ,"wsSettings": {"path": {{jsonstr $c.Path}}, "headers": {"Host": {{jsonstr $c.Host}}}}
 {{else if eq $c.Network "grpc"}}        ,"grpcSettings": {"serviceName": {{jsonstr $c.ServiceName}}}
+{{else if eq $c.Network "xhttp"}}        ,"xhttpSettings": {{if index $c.RawParams "extra"}}{{index $c.RawParams "extra"}}{{else}}{"path": {{jsonstr $c.Path}}, "host": {{jsonstr $c.Host}}}{{end}}
 {{end}}      }
     }
 {{end}}

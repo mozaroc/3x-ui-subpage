@@ -263,6 +263,16 @@ func appendTransportOpts(m *yaml.Node, cc tmplctx.ClientContext) {
 		mapAppend(m, key("grpc-opts"), mapping(
 			key("grpc-service-name"), str(cc.ServiceName),
 		))
+	case domain.NetworkXHTTP:
+		// Deliberately minimal: path+host is enough for basic connectivity.
+		// xhttp carries many more sub-fields (mode, padding, session/seq
+		// placement, ...) that this project doesn't assert a verified
+		// mihomo YAML schema for -- see RawParams/xray_json's raw "extra"
+		// splice for the byte-accurate xray-core-side rendering instead.
+		mapAppend(m, key("xhttp-opts"), mapping(
+			key("path"), str(cc.Path),
+			key("host"), str(cc.Host),
+		))
 	}
 }
 

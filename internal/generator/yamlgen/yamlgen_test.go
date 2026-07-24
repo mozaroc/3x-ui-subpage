@@ -10,7 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/irazin/3x-ui-subpage/internal/domain"
+	"github.com/irazin/3x-ui-subpage/internal/generator/tmplctx"
 )
 
 // baseTmpl is a plain, static admin template with no template programming:
@@ -51,7 +51,7 @@ func insertTemplate(t *testing.T, db *sql.DB, format, profile, content string) {
 	}
 }
 
-func buildAndParse(t *testing.T, tmpl string, clients []domain.MatchedClient) map[string]any {
+func buildAndParse(t *testing.T, tmpl string, clients []tmplctx.ClientContext) map[string]any {
 	t.Helper()
 	db := openTestDB(t)
 	insertTemplate(t, db, "clash", "default", tmpl)
@@ -101,81 +101,80 @@ func groupProxies(t *testing.T, parsed map[string]any, groupName string) []strin
 	return nil
 }
 
-func vlessRealityClient() domain.MatchedClient {
-	return domain.MatchedClient{
-		Protocol: domain.ProtocolVLESS,
-		Remark:   "vless-reality",
-		Server:   "vpn.example.com",
-		Port:     443,
-		Client:   domain.ClientAccount{ID: "uuid-1", Flow: "xtls-rprx-vision"},
-		Stream: domain.StreamSettings{
-			Network:  domain.NetworkTCP,
-			Security: domain.SecurityReality,
-			TLS:      domain.TLSSettings{SNI: "example.com", Fingerprint: "chrome", PublicKey: "pub", ShortID: "sid"},
-		},
+func vlessRealityClient() tmplctx.ClientContext {
+	return tmplctx.ClientContext{
+		Protocol: "vless", Remark: "vless-reality", Server: "vpn.example.com", Port: 443,
+		UUID: "uuid-1", Flow: "xtls-rprx-vision",
+		Network: "tcp", Security: "reality",
+		SNI: "example.com", Fingerprint: "chrome", PublicKey: "pub", ShortID: "sid",
 	}
 }
 
-func vlessTLSWSClient() domain.MatchedClient {
-	return domain.MatchedClient{
-		Protocol: domain.ProtocolVLESS,
-		Remark:   "vless-tls-ws",
-		Server:   "vpn.example.com",
-		Port:     8443,
-		Client:   domain.ClientAccount{ID: "uuid-2"},
-		Stream: domain.StreamSettings{
-			Network:   domain.NetworkWS,
-			Security:  domain.SecurityTLS,
-			TLS:       domain.TLSSettings{SNI: "ws.example.com", Fingerprint: "chrome", Insecure: true},
-			Transport: domain.TransportSettings{Path: "/ws", Host: "ws.example.com"},
-		},
+func vlessTLSWSClient() tmplctx.ClientContext {
+	return tmplctx.ClientContext{
+		Protocol: "vless", Remark: "vless-tls-ws", Server: "vpn.example.com", Port: 8443,
+		UUID:    "uuid-2",
+		Network: "ws", Security: "tls",
+		SNI: "ws.example.com", Fingerprint: "chrome", Insecure: true,
+		Path: "/ws", Host: "ws.example.com",
 	}
 }
 
-func vmessGRPCClient() domain.MatchedClient {
-	return domain.MatchedClient{
-		Protocol: domain.ProtocolVMess,
-		Remark:   "vmess-grpc",
-		Server:   "vpn.example.com",
-		Port:     2053,
-		Client:   domain.ClientAccount{ID: "uuid-3"},
-		Stream: domain.StreamSettings{
-			Network:   domain.NetworkGRPC,
-			Security:  domain.SecurityTLS,
-			TLS:       domain.TLSSettings{SNI: "grpc.example.com", Fingerprint: "chrome"},
-			Transport: domain.TransportSettings{ServiceName: "grpc-svc"},
-		},
+func vmessGRPCClient() tmplctx.ClientContext {
+	return tmplctx.ClientContext{
+		Protocol: "vmess", Remark: "vmess-grpc", Server: "vpn.example.com", Port: 2053,
+		UUID:    "uuid-3",
+		Network: "grpc", Security: "tls",
+		SNI: "grpc.example.com", Fingerprint: "chrome",
+		ServiceName: "grpc-svc",
 	}
 }
 
-func trojanClient() domain.MatchedClient {
-	return domain.MatchedClient{
-		Protocol: domain.ProtocolTrojan,
-		Remark:   "trojan-node",
-		Server:   "vpn.example.com",
-		Port:     443,
-		Client:   domain.ClientAccount{Password: "secret-pass"},
-		Stream: domain.StreamSettings{
-			Network:  domain.NetworkTCP,
-			Security: domain.SecurityTLS,
-			TLS:      domain.TLSSettings{SNI: "trojan.example.com", Insecure: true},
-		},
+func trojanClient() tmplctx.ClientContext {
+	return tmplctx.ClientContext{
+		Protocol: "trojan", Remark: "trojan-node", Server: "vpn.example.com", Port: 443,
+		Password: "secret-pass",
+		Network:  "tcp", Security: "tls",
+		SNI: "trojan.example.com", Insecure: true,
 	}
 }
 
-func shadowsocksClient() domain.MatchedClient {
-	return domain.MatchedClient{
-		Protocol: domain.ProtocolShadowsocks,
-		Remark:   "ss-node",
-		Server:   "vpn.example.com",
-		Port:     8388,
-		Client:   domain.ClientAccount{Method: "aes-256-gcm", Password: "sspw"},
-		Stream:   domain.StreamSettings{Network: domain.NetworkTCP, Security: domain.SecurityNone},
+func shadowsocksClient() tmplctx.ClientContext {
+	return tmplctx.ClientContext{
+		Protocol: "shadowsocks", Remark: "ss-node", Server: "vpn.example.com", Port: 8388,
+		Method: "aes-256-gcm", Password: "sspw",
+		Network: "tcp", Security: "none",
+	}
+}
+
+func vlessXHTTPClient() tmplctx.ClientContext {
+	return tmplctx.ClientContext{
+		Protocol: "vless", Remark: "vless-xhttp", Server: "vpn.example.com", Port: 443,
+		UUID:    "uuid-4",
+		Network: "xhttp", Security: "tls",
+		SNI: "example.com", Fingerprint: "firefox",
+		Path: "/0AfJZzQOK4", Host: "cdn.example.com",
+	}
+}
+
+func TestBuildProxies_VLESSXHTTP(t *testing.T) {
+	parsed := buildAndParse(t, baseTmpl, []tmplctx.ClientContext{vlessXHTTPClient()})
+	p := proxyByName(t, parsed, "vless-xhttp")
+
+	if p["network"] != "xhttp" {
+		t.Fatalf("expected network xhttp, got %v", p)
+	}
+	xhttpOpts, ok := p["xhttp-opts"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected xhttp-opts, got %v", p)
+	}
+	if xhttpOpts["path"] != "/0AfJZzQOK4" || xhttpOpts["host"] != "cdn.example.com" {
+		t.Errorf("unexpected xhttp-opts: %v", xhttpOpts)
 	}
 }
 
 func TestBuildProxies_VLESSReality(t *testing.T) {
-	parsed := buildAndParse(t, baseTmpl, []domain.MatchedClient{vlessRealityClient()})
+	parsed := buildAndParse(t, baseTmpl, []tmplctx.ClientContext{vlessRealityClient()})
 	p := proxyByName(t, parsed, "vless-reality")
 
 	if p["type"] != "vless" || p["server"] != "vpn.example.com" || p["port"] != 443 {
@@ -200,7 +199,7 @@ func TestBuildProxies_VLESSReality(t *testing.T) {
 }
 
 func TestBuildProxies_VLESSTLSWSInsecure(t *testing.T) {
-	parsed := buildAndParse(t, baseTmpl, []domain.MatchedClient{vlessTLSWSClient()})
+	parsed := buildAndParse(t, baseTmpl, []tmplctx.ClientContext{vlessTLSWSClient()})
 	p := proxyByName(t, parsed, "vless-tls-ws")
 
 	if p["tls"] != true || p["skip-cert-verify"] != true {
@@ -220,7 +219,7 @@ func TestBuildProxies_VLESSTLSWSInsecure(t *testing.T) {
 }
 
 func TestBuildProxies_VMessGRPC(t *testing.T) {
-	parsed := buildAndParse(t, baseTmpl, []domain.MatchedClient{vmessGRPCClient()})
+	parsed := buildAndParse(t, baseTmpl, []tmplctx.ClientContext{vmessGRPCClient()})
 	p := proxyByName(t, parsed, "vmess-grpc")
 
 	if p["type"] != "vmess" || p["alterId"] != 0 || p["cipher"] != "auto" {
@@ -233,7 +232,7 @@ func TestBuildProxies_VMessGRPC(t *testing.T) {
 }
 
 func TestBuildProxies_Trojan(t *testing.T) {
-	parsed := buildAndParse(t, baseTmpl, []domain.MatchedClient{trojanClient()})
+	parsed := buildAndParse(t, baseTmpl, []tmplctx.ClientContext{trojanClient()})
 	p := proxyByName(t, parsed, "trojan-node")
 
 	if p["password"] != "secret-pass" || p["sni"] != "trojan.example.com" || p["skip-cert-verify"] != true {
@@ -242,7 +241,7 @@ func TestBuildProxies_Trojan(t *testing.T) {
 }
 
 func TestBuildProxies_Shadowsocks(t *testing.T) {
-	parsed := buildAndParse(t, baseTmpl, []domain.MatchedClient{shadowsocksClient()})
+	parsed := buildAndParse(t, baseTmpl, []tmplctx.ClientContext{shadowsocksClient()})
 	p := proxyByName(t, parsed, "ss-node")
 
 	if p["type"] != "ss" || p["cipher"] != "aes-256-gcm" || p["password"] != "sspw" {
@@ -251,7 +250,7 @@ func TestBuildProxies_Shadowsocks(t *testing.T) {
 }
 
 func TestGroups_DefaultAutoPopulate(t *testing.T) {
-	clients := []domain.MatchedClient{vlessRealityClient(), trojanClient()}
+	clients := []tmplctx.ClientContext{vlessRealityClient(), trojanClient()}
 	parsed := buildAndParse(t, baseTmpl, clients)
 
 	got := groupProxies(t, parsed, "PROXY")
@@ -284,7 +283,7 @@ func TestGroups_NoDuplicationAcrossMultipleGroupsOrRebuilds(t *testing.T) {
   - name: AUTO
     type: url-test
 `
-	clients := []domain.MatchedClient{vlessRealityClient(), trojanClient()}
+	clients := []tmplctx.ClientContext{vlessRealityClient(), trojanClient()}
 	db := openTestDB(t)
 	insertTemplate(t, db, "clash", "default", tmpl)
 	g := New(db, "clash")
@@ -321,17 +320,17 @@ func TestGroups_NoDuplicationAcrossMultipleGroupsOrRebuilds(t *testing.T) {
 
 // TestBuild_SameClientAssignedToTwoInboundsProducesTwoDistinctlyNamedProxies
 // documents the intended behavior when a subscriber is assigned to more
-// than one inbound (a supported feature, not a bug): they get one proxy
-// entry per inbound, each disambiguated by combineName so they never
-// collide on the exact same name even though it's the same underlying
-// client -- see tmplctx.combineName's own doc comment.
+// than one inbound (a supported feature, not a bug): each canonical share
+// link carries its own Remark (the panel disambiguates them), so two
+// entries for what's otherwise the same underlying client still render as
+// two distinctly-named proxies.
 func TestBuild_SameClientAssignedToTwoInboundsProducesTwoDistinctlyNamedProxies(t *testing.T) {
 	a := vlessRealityClient()
 	a.Remark = "inbound-A"
 	b := vlessRealityClient()
 	b.Remark = "inbound-B"
 
-	parsed := buildAndParse(t, baseTmpl, []domain.MatchedClient{a, b})
+	parsed := buildAndParse(t, baseTmpl, []tmplctx.ClientContext{a, b})
 
 	proxies, _ := parsed["proxies"].([]any)
 	if len(proxies) != 2 {
@@ -356,7 +355,7 @@ func TestGroups_IncludeProxiesFalse(t *testing.T) {
     proxies:
       - DIRECT
 `
-	clients := []domain.MatchedClient{vlessRealityClient()}
+	clients := []tmplctx.ClientContext{vlessRealityClient()}
 	parsed := buildAndParse(t, tmpl, clients)
 
 	got := groupProxies(t, parsed, "MANUAL")
@@ -380,7 +379,7 @@ func TestGroups_SelectRandomProxy(t *testing.T) {
     proxies:
       - DIRECT
 `
-	clients := []domain.MatchedClient{vlessRealityClient(), trojanClient(), shadowsocksClient()}
+	clients := []tmplctx.ClientContext{vlessRealityClient(), trojanClient(), shadowsocksClient()}
 	parsed := buildAndParse(t, tmpl, clients)
 
 	got := groupProxies(t, parsed, "RANDOM")
@@ -405,7 +404,7 @@ func TestGroups_ShuffleProxiesOrder(t *testing.T) {
     proxies:
       - DIRECT
 `
-	clients := []domain.MatchedClient{vlessRealityClient(), trojanClient(), shadowsocksClient()}
+	clients := []tmplctx.ClientContext{vlessRealityClient(), trojanClient(), shadowsocksClient()}
 	parsed := buildAndParse(t, tmpl, clients)
 
 	got := groupProxies(t, parsed, "SHUFFLED")
@@ -432,7 +431,7 @@ func TestGroups_FilterAndExcludeFilter(t *testing.T) {
     exclude-filter: 'trojan'
     proxies: []
 `
-	clients := []domain.MatchedClient{vlessRealityClient(), trojanClient(), shadowsocksClient()}
+	clients := []tmplctx.ClientContext{vlessRealityClient(), trojanClient(), shadowsocksClient()}
 	parsed := buildAndParse(t, tmpl, clients)
 
 	got := groupProxies(t, parsed, "FILTERED")
@@ -443,7 +442,7 @@ func TestGroups_FilterAndExcludeFilter(t *testing.T) {
 
 func TestBuild_MissingProxyGroups(t *testing.T) {
 	tmpl := "mixed-port: 7890\n"
-	parsed := buildAndParse(t, tmpl, []domain.MatchedClient{vlessRealityClient()})
+	parsed := buildAndParse(t, tmpl, []tmplctx.ClientContext{vlessRealityClient()})
 
 	proxies, _ := parsed["proxies"].([]any)
 	if len(proxies) != 1 {
@@ -452,7 +451,7 @@ func TestBuild_MissingProxyGroups(t *testing.T) {
 }
 
 func TestBuild_ProxiesKeyCreatedWhenAbsent(t *testing.T) {
-	parsed := buildAndParse(t, baseTmpl, []domain.MatchedClient{vlessRealityClient()})
+	parsed := buildAndParse(t, baseTmpl, []tmplctx.ClientContext{vlessRealityClient()})
 	if _, ok := parsed["proxies"]; !ok {
 		t.Fatalf("expected proxies key to be created, got %v", parsed)
 	}

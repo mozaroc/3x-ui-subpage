@@ -172,24 +172,36 @@ tiny bootstrap file naming that database's path.
 - **`internal/templatestore`** — the admin-write counterpart to
   `tmplcache`'s hot-reloaded reads: plain CRUD over the `templates` table,
   used only by the admin UI.
-- **`internal/routing`** — per-subscriber Happ/Incy "Routing Profile"
-  (table `user_routing`, keyed by `sub_id`): the client apps' own native
-  traffic-splitting feature (`GlobalProxy`, `RouteOrder`, `DomainStrategy`,
-  remote/domestic DNS, `DnsHosts`, GeoIP/GeoSite URLs, Direct/Proxy/Block
-  site+IP lists, `FakeDNS`, `UseChunkFiles`), documented at
-  routing.happ.su / docs.incy.cc/en/routing. Unrelated to any generated
-  config's *body* — `Profile.EncodeDeepLink` renders the exact wire JSON
-  (note two real quirks: `GlobalProxy`/`FakeDNS` are the literal strings
-  `"true"`/`"false"`, not JSON booleans, while `UseChunkFiles` is a
-  genuine bool) and wraps it as `{scheme}://routing/{action}/{base64}`;
-  `httpserver.writeRoutingHeaders` sets this as the `Routing` response
-  header (plus `Routing-Enable: true|false`) on every endpoint a Happ or
-  Incy client actually hits, mirroring upstream 3x-ui's own
-  `ApplyCommonHeaders` but scoped per-subscriber. This replaced an earlier,
-  unrelated global feature of the same package name (Xray-core GEOIP/
-  domain/CIDR rules on a standalone `/admin/routing` page) — the two
+- **`internal/routing`** — Happ/Incy "Routing Profile" (the client apps' own
+  native traffic-splitting feature — `GlobalProxy`, `RouteOrder`,
+  `DomainStrategy`, remote/domestic DNS, `DnsHosts`, GeoIP/GeoSite URLs,
+  Direct/Proxy/Block site+IP lists, `FakeDNS`, `UseChunkFiles`, documented
+  at routing.happ.su / docs.incy.cc/en/routing), split across two tables:
+  - `routing_generator` (single row): the admin's Routing Generator page
+    (`/admin/routing`) builds a `Profile` from the full field set and
+    `Profile.Encode` renders the exact wire JSON (two real quirks:
+    `GlobalProxy`/`FakeDNS` are the literal strings `"true"`/`"false"`, not
+    JSON booleans, while `UseChunkFiles` is a genuine bool) into a
+    `GeneratedRouting{PreviewJSON, Base64}`. The Base64 string is what the
+    admin copies out.
+  - `user_routing` (keyed by `sub_id`): just an `enabled` toggle and a
+    `routing_b64` string pasted in from the generator's output — no JSON,
+    no per-user rule editing. One configuration, assigned to any number of
+    subscribers, each independently toggled.
+
+  `httpserver.writeRoutingHeaders` embeds a subscriber's stored
+  `routing_b64` verbatim as `{scheme}://routing/onadd/{routing_b64}` in the
+  `Routing` response header (plus `Routing-Enable: true|false`) on every
+  endpoint a Happ or Incy client actually hits — no JSON encoding happens
+  at request time at all, mirroring upstream 3x-ui's own
+  `ApplyCommonHeaders` but scoped per-subscriber. This is unrelated to an
+  earlier, unrelated global feature of the same package name (Xray-core
+  GEOIP/domain/CIDR rules on a standalone `/admin/routing` page) — the two
   happened to share the word "routing" but modeled completely different
-  things; the old one was removed outright, not migrated.
+  things; the old one was removed outright, not migrated. (A later
+  revision also briefly stored the full `Profile` per-subscriber before
+  settling on the generate-once/paste-many-times model above;
+  `routing.MigrateLegacy` carries forward any such rows.)
 - **`internal/users`** — the canonical source of truth for subscriber
   accounts (table `users`) and their inbound assignments (table
   `user_inbounds`). Owns local bookkeeping only — a `User`'s

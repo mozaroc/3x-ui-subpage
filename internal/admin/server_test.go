@@ -3,7 +3,10 @@ package admin
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"html"
 	"io"
 	"log/slog"
 	"net/http"
@@ -571,10 +574,12 @@ func TestTemplateDelete(t *testing.T) {
 	}
 }
 
-// The standalone global Routing page (Xray-core GEOIP/domain/CIDR rules)
-// was removed -- routing is now the per-subscriber Happ/Incy Routing
-// Profile, configured on the User pages (see handlers_users_test.go).
-func TestRoutingRoute_Removed(t *testing.T) {
+// The old standalone global Routing page (Xray-core GEOIP/domain/CIDR
+// rules) was removed outright. /admin/routing now serves a different
+// feature entirely: the Happ/Incy Routing Generator -- see
+// TestRoutingGenerator_Generate below. Per-user enable/paste-b64 lives on
+// the User pages (see handlers_users_test.go).
+func TestRoutingGeneratorForm_Renders(t *testing.T) {
 	s, _ := newTestServer(t)
 	cookie := loginAndGetCookie(t, s)
 
@@ -582,8 +587,53 @@ func TestRoutingRoute_Removed(t *testing.T) {
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	s.Router().ServeHTTP(rec, req)
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("expected /admin/routing to 404, got %d", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected /admin/routing to render, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `name="routing_route_order"`) {
+		t.Error("expected the Routing Generator form to render its field set")
+	}
+}
+
+func TestRoutingGenerator_Generate(t *testing.T) {
+	s, _ := newTestServer(t)
+	cookie := loginAndGetCookie(t, s)
+	token := csrfTokenFor(t, s, cookie)
+
+	form := url.Values{
+		"routing_name":         {"my-profile"},
+		"routing_route_order":  {"Proxy>Direct>Block"},
+		"routing_direct_sites": {"example.com"},
+		"csrf_token":           {token},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/routing", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("generate: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	body := rec.Body.String()
+	idx := strings.Index(body, `data-copy="`)
+	if idx < 0 {
+		t.Fatalf("expected a data-copy attribute with the generated base64, got: %s", body)
+	}
+	rest := body[idx+len(`data-copy="`):]
+	b64 := rest[:strings.Index(rest, `"`)]
+	b64 = html.UnescapeString(b64)
+
+	decoded, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		t.Fatalf("expected data-copy value to be valid base64: %v", err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(decoded, &raw); err != nil {
+		t.Fatalf("expected decoded base64 to be valid JSON: %v\n%s", err, decoded)
+	}
+	if raw["RouteOrder"] != "Proxy>Direct>Block" {
+		t.Errorf("expected generated JSON to contain the submitted RouteOrder, got %+v", raw)
 	}
 }
 

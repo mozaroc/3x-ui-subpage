@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/irazin/3x-ui-subpage/internal/domain"
-	"github.com/irazin/3x-ui-subpage/internal/routing"
 	"github.com/irazin/3x-ui-subpage/internal/sync"
 	"github.com/irazin/3x-ui-subpage/internal/users"
 	"github.com/irazin/3x-ui-subpage/internal/xui"
@@ -235,19 +234,16 @@ func TestUsers_Delete_CleansUpTemplateAssignments(t *testing.T) {
 	}
 }
 
-func TestUsers_Create_SetsRoutingProfile(t *testing.T) {
+func TestUsers_Create_SetsRouting(t *testing.T) {
 	s, _ := newTestServer(t)
 	cookie := loginAndGetCookie(t, s)
 	token := csrfTokenFor(t, s, cookie)
 
 	form := url.Values{
 		"username": {"heidi2"}, "sub_id": {"sub-heidi2"},
-		"routing_enabled":      {"1"},
-		"routing_global_proxy": {"1"},
-		"routing_route_order":  {"Proxy>Direct>Block"},
-		"routing_direct_sites": {"example.com\nexample.org"},
-		"routing_block_ip":     {"1.2.3.0/24"},
-		"csrf_token":           {token},
+		"routing_enabled": {"1"},
+		"routing_b64":     {"dGVzdC1yb3V0aW5nLXBheWxvYWQ="},
+		"csrf_token":      {token},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -258,21 +254,44 @@ func TestUsers_Create_SetsRoutingProfile(t *testing.T) {
 		t.Fatalf("create user: expected 302, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	enabled, profile, err := s.routing.Get("sub-heidi2")
+	enabled, b64, err := s.routing.Get("sub-heidi2")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 	if !enabled {
 		t.Error("expected routing enabled")
 	}
-	if !profile.GlobalProxy || profile.RouteOrder != "Proxy>Direct>Block" {
-		t.Errorf("unexpected profile: %+v", profile)
+	if b64 != "dGVzdC1yb3V0aW5nLXBheWxvYWQ=" {
+		t.Errorf("expected submitted routing_b64 to be stored, got %q", b64)
 	}
-	if len(profile.DirectSites) != 2 || profile.DirectSites[0] != "example.com" || profile.DirectSites[1] != "example.org" {
-		t.Errorf("unexpected DirectSites: %+v", profile.DirectSites)
+}
+
+func TestUsers_Create_WithInvalidBase64Rejected(t *testing.T) {
+	s, _ := newTestServer(t)
+	cookie := loginAndGetCookie(t, s)
+	token := csrfTokenFor(t, s, cookie)
+
+	form := url.Values{
+		"username": {"invalidb64"}, "sub_id": {"sub-invalidb64"},
+		"routing_enabled": {"1"},
+		"routing_b64":     {"not valid base64!!"},
+		"csrf_token":      {token},
 	}
-	if len(profile.BlockIP) != 1 || profile.BlockIP[0] != "1.2.3.0/24" {
-		t.Errorf("unexpected BlockIP: %+v", profile.BlockIP)
+	req := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid base64, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	_, total, err := s.users.List(users.ListFilter{Query: "invalidb64"})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if total != 0 {
+		t.Error("expected user to not be created when routing_b64 is invalid")
 	}
 }
 
@@ -292,21 +311,21 @@ func TestUsers_Create_WithoutRoutingFieldsDefaultsDisabled(t *testing.T) {
 	}
 }
 
-func TestUsers_Update_MovesRoutingProfileWhenSubIDChanges(t *testing.T) {
+func TestUsers_Update_MovesRoutingWhenSubIDChanges(t *testing.T) {
 	s, _ := newTestServer(t)
 	cookie := loginAndGetCookie(t, s)
 	token := csrfTokenFor(t, s, cookie)
 
 	id := createUserViaHandler(t, s, cookie, token, "judy", "sub-judy-old")
-	if err := s.routing.Set("sub-judy-old", true, routing.Profile{RouteOrder: "Proxy>Direct>Block"}); err != nil {
+	if err := s.routing.Set("sub-judy-old", true, "old-b64"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
 	form := url.Values{
 		"username": {"judy"}, "sub_id": {"sub-judy-new"},
-		"routing_enabled":     {"1"},
-		"routing_route_order": {"Proxy>Direct>Block"},
-		"csrf_token":          {token},
+		"routing_enabled": {"1"},
+		"routing_b64":     {"bmV3LXJvdXRpbmc="},
+		"csrf_token":      {token},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/users/"+itoa(id), strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -322,25 +341,25 @@ func TestUsers_Update_MovesRoutingProfileWhenSubIDChanges(t *testing.T) {
 		t.Fatalf("Get(old): %v", err)
 	}
 	if oldEnabled {
-		t.Error("expected old sub_id's routing profile cleaned up")
+		t.Error("expected old sub_id's routing cleaned up")
 	}
 
-	newEnabled, newProfile, err := s.routing.Get("sub-judy-new")
+	newEnabled, newB64, err := s.routing.Get("sub-judy-new")
 	if err != nil {
 		t.Fatalf("Get(new): %v", err)
 	}
-	if !newEnabled || newProfile.RouteOrder != "Proxy>Direct>Block" {
-		t.Errorf("expected new sub_id to carry the submitted routing profile, got enabled=%v profile=%+v", newEnabled, newProfile)
+	if !newEnabled || newB64 != "bmV3LXJvdXRpbmc=" {
+		t.Errorf("expected new sub_id to carry the submitted routing_b64, got enabled=%v b64=%q", newEnabled, newB64)
 	}
 }
 
-func TestUsers_Delete_CleansUpRoutingProfile(t *testing.T) {
+func TestUsers_Delete_CleansUpRouting(t *testing.T) {
 	s, _ := newTestServer(t)
 	cookie := loginAndGetCookie(t, s)
 	token := csrfTokenFor(t, s, cookie)
 
 	id := createUserViaHandler(t, s, cookie, token, "kevin", "sub-kevin")
-	if err := s.routing.Set("sub-kevin", true, routing.Profile{RouteOrder: "Proxy>Direct>Block"}); err != nil {
+	if err := s.routing.Set("sub-kevin", true, "some-b64"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
@@ -359,17 +378,17 @@ func TestUsers_Delete_CleansUpRoutingProfile(t *testing.T) {
 		t.Fatalf("Get: %v", err)
 	}
 	if enabled {
-		t.Error("expected routing profile cleaned up after delete")
+		t.Error("expected routing cleaned up after delete")
 	}
 }
 
-func TestUserDetail_ShowsRoutingPreview(t *testing.T) {
+func TestUserDetail_ShowsRoutingFields(t *testing.T) {
 	s, _ := newTestServer(t)
 	cookie := loginAndGetCookie(t, s)
 	token := csrfTokenFor(t, s, cookie)
 
 	id := createUserViaHandler(t, s, cookie, token, "laura", "sub-laura")
-	if err := s.routing.Set("sub-laura", true, routing.Profile{RouteOrder: "Block>Proxy>Direct", DirectSites: []string{"example.com"}}); err != nil {
+	if err := s.routing.Set("sub-laura", true, "cGFzdGVkLXJvdXRpbmc="); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
@@ -382,11 +401,8 @@ func TestUserDetail_ShowsRoutingPreview(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "Block&gt;Proxy&gt;Direct") && !strings.Contains(body, "Block>Proxy>Direct") {
-		t.Errorf("expected page to show the routing preview with RouteOrder, got: %s", body)
-	}
-	if !strings.Contains(body, "example.com") {
-		t.Errorf("expected page to show DirectSites in the preview, got: %s", body)
+	if !strings.Contains(body, "cGFzdGVkLXJvdXRpbmc=") {
+		t.Errorf("expected page to show the pasted routing_b64 value, got: %s", body)
 	}
 }
 

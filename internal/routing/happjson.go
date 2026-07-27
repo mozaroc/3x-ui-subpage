@@ -72,24 +72,31 @@ func (p Profile) toWire(name string) wireProfile {
 	}
 }
 
-// PreviewJSON renders the exact wire JSON, pretty-printed, for display in
-// the admin UI -- no base64/deep-link wrapping.
-func (p Profile) PreviewJSON(name string) (string, error) {
-	b, err := json.MarshalIndent(p.toWire(name), "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("routing: encode preview: %w", err)
-	}
-	return string(b), nil
+// GeneratedRouting is one snapshot of a Profile encoded for both display
+// (PreviewJSON) and deep-link embedding (Base64) -- generated from a single
+// wire object so the two never disagree on LastUpdated.
+type GeneratedRouting struct {
+	PreviewJSON string // pretty JSON, for the admin UI
+	Base64      string // base64(compact JSON) -- the literal string a Happ/Incy
+	// deep link embeds as "{scheme}://routing/{action}/{Base64}"
 }
 
-// EncodeDeepLink builds the deep link the Happ/Incy app reads to install
-// this routing profile: "{scheme}://routing/{action}/{base64(json)}".
-// scheme is "happ" or "incy"; action is typically "onadd" (add and
-// activate immediately).
-func (p Profile) EncodeDeepLink(scheme, action, name string) (string, error) {
-	b, err := json.Marshal(p.toWire(name))
+// Encode renders p as the exact Happ/Incy wire JSON (named per the admin's
+// chosen label), returning both a pretty-printed preview and the compact
+// Base64 form that gets pasted into a user's routing_b64 field.
+func (p Profile) Encode(name string) (GeneratedRouting, error) {
+	wire := p.toWire(name)
+
+	pretty, err := json.MarshalIndent(wire, "", "  ")
 	if err != nil {
-		return "", fmt.Errorf("routing: encode deep link: %w", err)
+		return GeneratedRouting{}, fmt.Errorf("routing: encode preview: %w", err)
 	}
-	return fmt.Sprintf("%s://routing/%s/%s", scheme, action, base64.StdEncoding.EncodeToString(b)), nil
+	compact, err := json.Marshal(wire)
+	if err != nil {
+		return GeneratedRouting{}, fmt.Errorf("routing: encode base64: %w", err)
+	}
+	return GeneratedRouting{
+		PreviewJSON: string(pretty),
+		Base64:      base64.StdEncoding.EncodeToString(compact),
+	}, nil
 }

@@ -71,10 +71,11 @@ type AssignmentResolver interface {
 	Resolve(subID, format string) (string, error)
 }
 
-// RoutingResolver resolves a subscriber's Happ/Incy Routing Profile.
-// Satisfied by *routing.Store.
+// RoutingResolver resolves a subscriber's Happ/Incy routing toggle and the
+// admin-authored Base64 blob to embed when enabled. Satisfied by
+// *routing.Store.
 type RoutingResolver interface {
-	Get(subID string) (enabled bool, profile routing.Profile, err error)
+	Get(subID string) (enabled bool, routingB64 string, err error)
 }
 
 // Deps holds every collaborator the HTTP layer needs.

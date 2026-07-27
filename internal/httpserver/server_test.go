@@ -16,7 +16,6 @@ import (
 	"github.com/irazin/3x-ui-subpage/internal/domain"
 	"github.com/irazin/3x-ui-subpage/internal/generator/tmplctx"
 	"github.com/irazin/3x-ui-subpage/internal/resolver"
-	"github.com/irazin/3x-ui-subpage/internal/routing"
 )
 
 // sampleLink is a valid, parseable vless:// link used as sampleSubscription's
@@ -115,19 +114,19 @@ func (f fakeAssignments) Resolve(subID, format string) (string, error) {
 	return "default", nil
 }
 
-// fakeRouting returns a fixed enabled/profile pair for every subID,
-// disabled by default (matching "no row" behavior of the real Store).
+// fakeRouting returns a fixed enabled/b64 pair for every subID, disabled by
+// default (matching "no row" behavior of the real Store).
 type fakeRouting struct {
 	enabled bool
-	profile routing.Profile
+	b64     string
 	err     error
 }
 
-func (f fakeRouting) Get(subID string) (bool, routing.Profile, error) {
+func (f fakeRouting) Get(subID string) (bool, string, error) {
 	if f.err != nil {
-		return false, routing.Profile{}, f.err
+		return false, "", f.err
 	}
-	return f.enabled, f.profile, nil
+	return f.enabled, f.b64, nil
 }
 
 func testDeps(t *testing.T, sub domain.Subscription, resolveErr error) Deps {
@@ -326,7 +325,7 @@ func TestRoutingHeaders_DisabledOnlySetsRoutingEnableFalse(t *testing.T) {
 
 func TestRoutingHeaders_HappGetsHappScheme(t *testing.T) {
 	deps := testDeps(t, sampleSubscription(), nil)
-	deps.Routing = fakeRouting{enabled: true, profile: routing.Profile{RouteOrder: "Proxy>Direct>Block"}}
+	deps.Routing = fakeRouting{enabled: true, b64: "abc123"}
 	srv := New(deps)
 
 	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc/happ", nil)
@@ -337,14 +336,14 @@ func TestRoutingHeaders_HappGetsHappScheme(t *testing.T) {
 		t.Fatalf("expected Routing-Enable: true, got %q", got)
 	}
 	link := rec.Header().Get("Routing")
-	if !strings.HasPrefix(link, "happ://routing/onadd/") {
-		t.Errorf("expected a happ:// routing deep link, got %q", link)
+	if link != "happ://routing/onadd/abc123" {
+		t.Errorf("expected happ://routing/onadd/abc123, got %q", link)
 	}
 }
 
 func TestRoutingHeaders_IncyGetsIncyScheme(t *testing.T) {
 	deps := testDeps(t, sampleSubscription(), nil)
-	deps.Routing = fakeRouting{enabled: true, profile: routing.Profile{RouteOrder: "Proxy>Direct>Block"}}
+	deps.Routing = fakeRouting{enabled: true, b64: "abc123"}
 	srv := New(deps)
 
 	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc/incy", nil)
@@ -352,14 +351,14 @@ func TestRoutingHeaders_IncyGetsIncyScheme(t *testing.T) {
 	srv.Router().ServeHTTP(rec, req)
 
 	link := rec.Header().Get("Routing")
-	if !strings.HasPrefix(link, "incy://routing/onadd/") {
-		t.Errorf("expected an incy:// routing deep link, got %q", link)
+	if link != "incy://routing/onadd/abc123" {
+		t.Errorf("expected incy://routing/onadd/abc123, got %q", link)
 	}
 }
 
 func TestRoutingHeaders_XrayLinksPathGetsHappScheme(t *testing.T) {
 	deps := testDeps(t, sampleSubscription(), nil)
-	deps.Routing = fakeRouting{enabled: true, profile: routing.Profile{RouteOrder: "Proxy>Direct>Block"}}
+	deps.Routing = fakeRouting{enabled: true, b64: "abc123"}
 	srv := New(deps)
 
 	req := httptest.NewRequest(http.MethodGet, "/sub/tok-abc/xray", nil)
@@ -367,14 +366,14 @@ func TestRoutingHeaders_XrayLinksPathGetsHappScheme(t *testing.T) {
 	srv.Router().ServeHTTP(rec, req)
 
 	link := rec.Header().Get("Routing")
-	if !strings.HasPrefix(link, "happ://routing/onadd/") {
-		t.Errorf("expected a happ:// routing deep link on the xray-links path (where the real Happ app lands), got %q", link)
+	if link != "happ://routing/onadd/abc123" {
+		t.Errorf("expected happ://routing/onadd/abc123 on the xray-links path (where the real Happ app lands), got %q", link)
 	}
 }
 
 func TestRoutingHeaders_NeverSetOnXrayJSONClashMihomo(t *testing.T) {
 	deps := testDeps(t, sampleSubscription(), nil)
-	deps.Routing = fakeRouting{enabled: true, profile: routing.Profile{RouteOrder: "Proxy>Direct>Block"}}
+	deps.Routing = fakeRouting{enabled: true, b64: "abc123"}
 	srv := New(deps)
 
 	for _, path := range []string{"/sub/tok-abc/xray.json", "/sub/tok-abc/clash", "/sub/tok-abc/mihomo"} {

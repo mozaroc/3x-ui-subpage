@@ -1,0 +1,168 @@
+{{define "page-routing-generator"}}
+<h1>Routing Generator</h1>
+{{if .Data.Error}}<div class="error">{{.Data.Error}}</div>{{end}}
+<div class="card">
+  <p class="hint">
+    Configures the client apps' own native Routing Profile (per
+    <a href="https://routing.happ.su" target="_blank" rel="noopener">Happ's Routing Generator</a>) --
+    unrelated to the Xray/Clash/Mihomo config formats. Build the rules
+    below, click Generate, then copy the resulting Base64 string and paste
+    it into any number of users' Routing sections on their Edit pages
+    (enable routing there to activate it).
+  </p>
+  <form method="post" action="/admin/routing">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+    <div class="form-section">
+      <div class="form-grid">
+        <div class="field field--md">
+          <label>Profile name</label>
+          <input type="text" name="routing_name" value="{{.Data.Routing.Name}}" placeholder="Default routing">
+        </div>
+        <div class="field field--sm">
+          <label>Global proxy</label>
+          <input type="checkbox" name="routing_global_proxy" value="1" {{if .Data.Routing.GlobalProxy}}checked{{end}}>
+        </div>
+        <div class="field field--md">
+          <label>Route order</label>
+          <select name="routing_route_order">
+            {{$sel := .Data.Routing.RouteOrder}}
+            {{range .Data.Routing.RouteOrderOptions}}
+            <option value="{{.}}" {{if eq . $sel}}selected{{end}}>{{.}}</option>
+            {{end}}
+          </select>
+        </div>
+        <div class="field field--md">
+          <label>Domain strategy</label>
+          <select name="routing_domain_strategy">
+            {{$sel := .Data.Routing.DomainStrategy}}
+            {{range .Data.Routing.DomainStrategyOptions}}
+            <option value="{{.}}" {{if eq . $sel}}selected{{end}}>{{.}}</option>
+            {{end}}
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="form-grid">
+        <div class="field field--sm">
+          <label>Remote DNS type</label>
+          <select name="routing_remote_dns_type">
+            {{$sel := .Data.Routing.RemoteDNSType}}
+            {{range .Data.Routing.DNSTypeOptions}}
+            <option value="{{.}}" {{if eq . $sel}}selected{{end}}>{{if .}}{{.}}{{else}}(none){{end}}</option>
+            {{end}}
+          </select>
+        </div>
+        <div class="field field--md">
+          <label>Remote DNS domain</label>
+          <input type="text" name="routing_remote_dns_domain" value="{{.Data.Routing.RemoteDNSDomain}}" placeholder="dns.google">
+        </div>
+        <div class="field field--md">
+          <label>Remote DNS IP</label>
+          <input type="text" name="routing_remote_dns_ip" value="{{.Data.Routing.RemoteDNSIP}}" placeholder="8.8.8.8">
+        </div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="form-grid">
+        <div class="field field--sm">
+          <label>Domestic DNS type</label>
+          <select name="routing_domestic_dns_type">
+            {{$sel := .Data.Routing.DomesticDNSType}}
+            {{range .Data.Routing.DNSTypeOptions}}
+            <option value="{{.}}" {{if eq . $sel}}selected{{end}}>{{if .}}{{.}}{{else}}(none){{end}}</option>
+            {{end}}
+          </select>
+        </div>
+        <div class="field field--md">
+          <label>Domestic DNS domain</label>
+          <input type="text" name="routing_domestic_dns_domain" value="{{.Data.Routing.DomesticDNSDomain}}">
+        </div>
+        <div class="field field--md">
+          <label>Domestic DNS IP</label>
+          <input type="text" name="routing_domestic_dns_ip" value="{{.Data.Routing.DomesticDNSIP}}">
+        </div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="form-grid">
+        <div class="field field--md">
+          <label>GeoIP URL</label>
+          <input type="text" name="routing_geoip_url" value="{{.Data.Routing.GeoIPURL}}" placeholder="https://.../geoip.dat">
+        </div>
+        <div class="field field--md">
+          <label>GeoSite URL</label>
+          <input type="text" name="routing_geosite_url" value="{{.Data.Routing.GeoSiteURL}}" placeholder="https://.../geosite.dat">
+        </div>
+        <div class="field field--sm">
+          <label>Fake DNS</label>
+          <input type="checkbox" name="routing_fake_dns" value="1" {{if .Data.Routing.FakeDNS}}checked{{end}}>
+        </div>
+        <div class="field field--sm">
+          <label>Use chunk files</label>
+          <input type="checkbox" name="routing_use_chunk_files" value="1" {{if .Data.Routing.UseChunkFiles}}checked{{end}}>
+        </div>
+      </div>
+
+      <div class="field field--full">
+        <label>DNS hosts (one "domain ip" pair per line)</label>
+        <textarea name="routing_dns_hosts" rows="3" placeholder="example.com 1.2.3.4">{{.Data.Routing.DNSHosts}}</textarea>
+      </div>
+
+      <div class="form-grid">
+        <div class="field field--md">
+          <label>Direct sites (one per line)</label>
+          <textarea name="routing_direct_sites" rows="4">{{.Data.Routing.DirectSites}}</textarea>
+        </div>
+        <div class="field field--md">
+          <label>Direct IPs / CIDRs (one per line)</label>
+          <textarea name="routing_direct_ip" rows="4">{{.Data.Routing.DirectIP}}</textarea>
+        </div>
+        <div class="field field--md">
+          <label>Proxy sites (one per line)</label>
+          <textarea name="routing_proxy_sites" rows="4">{{.Data.Routing.ProxySites}}</textarea>
+        </div>
+        <div class="field field--md">
+          <label>Proxy IPs / CIDRs (one per line)</label>
+          <textarea name="routing_proxy_ip" rows="4">{{.Data.Routing.ProxyIP}}</textarea>
+        </div>
+        <div class="field field--md">
+          <label>Block sites (one per line)</label>
+          <textarea name="routing_block_sites" rows="4">{{.Data.Routing.BlockSites}}</textarea>
+        </div>
+        <div class="field field--md">
+          <label>Block IPs / CIDRs (one per line)</label>
+          <textarea name="routing_block_ip" rows="4">{{.Data.Routing.BlockIP}}</textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn--primary" type="submit">Generate</button>
+    </div>
+  </form>
+</div>
+
+{{if .Data.Routing.GeneratedB64}}
+<div class="card">
+  <h2>Generated routing configuration</h2>
+  <div class="field field--full">
+    <label>Base64 (paste into a user's Routing section)</label>
+    <div class="copy-row">
+      <input class="mono" type="text" readonly value="{{.Data.Routing.GeneratedB64}}">
+      <button class="btn btn--primary" type="button" data-copy="{{.Data.Routing.GeneratedB64}}">Copy</button>
+    </div>
+  </div>
+  {{if .Data.Routing.PreviewJSON}}
+  <details>
+    <summary>Preview generated routing configuration</summary>
+    <pre class="mono wrap">{{.Data.Routing.PreviewJSON}}</pre>
+  </details>
+  {{end}}
+</div>
+{{end}}
+{{end}}

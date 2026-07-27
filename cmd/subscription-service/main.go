@@ -73,6 +73,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "subscription-service: %v\n", err)
 		os.Exit(1)
 	}
+	if err := routing.MigrateLegacy(db); err != nil {
+		fmt.Fprintf(os.Stderr, "subscription-service: %v\n", err)
+		os.Exit(1)
+	}
 
 	if *importDir != "" {
 		if err := importer.Import(db, *importDir); err != nil {

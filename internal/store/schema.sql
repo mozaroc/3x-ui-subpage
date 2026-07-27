@@ -85,16 +85,29 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at INTEGER NOT NULL
 );
 
--- Per-subscriber Happ/Incy "Routing Profile" (their own native app-level
--- traffic-splitting feature -- unrelated to Xray-core routing rules).
--- config is the JSON-encoded internal/routing.Profile; delivered to the
--- client via the Routing/Routing-Enable response headers on the
--- subscription request, never stored in the generated config body.
+-- Per-subscriber Happ/Incy "Routing Profile" toggle (their own native
+-- app-level traffic-splitting feature -- unrelated to Xray-core routing
+-- rules). routing_b64 is an opaque Base64 blob authored once on the
+-- Routing Generator admin page (see routing_generator below) and pasted
+-- into any number of users; delivered to the client verbatim via the
+-- Routing/Routing-Enable response headers on the subscription request,
+-- never stored in the generated config body.
 CREATE TABLE IF NOT EXISTS user_routing (
-    sub_id     TEXT PRIMARY KEY,
-    enabled    INTEGER NOT NULL DEFAULT 0,
-    config     TEXT NOT NULL DEFAULT '{}',
-    updated_at INTEGER NOT NULL
+    sub_id      TEXT PRIMARY KEY,
+    enabled     INTEGER NOT NULL DEFAULT 0,
+    routing_b64 TEXT NOT NULL DEFAULT '',
+    updated_at  INTEGER NOT NULL
+);
+
+-- Single-row (id=1) persisted state for the admin's "Routing Generator"
+-- page -- the last-edited profile fields and the last Base64 blob they
+-- produced, so navigating away and back doesn't lose in-progress work.
+CREATE TABLE IF NOT EXISTS routing_generator (
+    id            INTEGER PRIMARY KEY CHECK (id = 1),
+    name          TEXT NOT NULL DEFAULT '',
+    profile       TEXT NOT NULL DEFAULT '{}',
+    generated_b64 TEXT NOT NULL DEFAULT '',
+    updated_at    INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS users (

@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestEncodeDeepLink_Shape(t *testing.T) {
+func TestEncode_Shape(t *testing.T) {
 	p := Profile{
 		GlobalProxy:    true,
 		RouteOrder:     "Proxy>Direct>Block",
@@ -19,18 +19,12 @@ func TestEncodeDeepLink_Shape(t *testing.T) {
 		UseChunkFiles:  true,
 	}
 
-	link, err := p.EncodeDeepLink("happ", "onadd", "my-user")
+	generated, err := p.Encode("my-user")
 	if err != nil {
-		t.Fatalf("EncodeDeepLink: %v", err)
+		t.Fatalf("Encode: %v", err)
 	}
 
-	const prefix = "happ://routing/onadd/"
-	if !strings.HasPrefix(link, prefix) {
-		t.Fatalf("expected link to start with %q, got %q", prefix, link)
-	}
-
-	encoded := strings.TrimPrefix(link, prefix)
-	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	decoded, err := base64.StdEncoding.DecodeString(generated.Base64)
 	if err != nil {
 		t.Fatalf("expected valid base64 payload: %v", err)
 	}
@@ -68,40 +62,44 @@ func TestEncodeDeepLink_Shape(t *testing.T) {
 	}
 }
 
-func TestEncodeDeepLink_IncyScheme(t *testing.T) {
-	link, err := Profile{}.EncodeDeepLink("incy", "onadd", "user")
+func TestEncode_PreviewJSONMatchesBase64Payload(t *testing.T) {
+	generated, err := Profile{RouteOrder: "Block>Proxy>Direct"}.Encode("user")
 	if err != nil {
-		t.Fatalf("EncodeDeepLink: %v", err)
+		t.Fatalf("Encode: %v", err)
 	}
-	if !strings.HasPrefix(link, "incy://routing/onadd/") {
-		t.Errorf("expected incy scheme, got %q", link)
+	if strings.Contains(generated.PreviewJSON, "://") {
+		t.Errorf("expected plain JSON with no deep-link scheme, got: %s", generated.PreviewJSON)
+	}
+
+	var preview map[string]any
+	if err := json.Unmarshal([]byte(generated.PreviewJSON), &preview); err != nil {
+		t.Fatalf("expected preview to be valid JSON: %v\n%s", err, generated.PreviewJSON)
+	}
+	if preview["RouteOrder"] != "Block>Proxy>Direct" {
+		t.Errorf("unexpected RouteOrder in preview: %v", preview["RouteOrder"])
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(generated.Base64)
+	if err != nil {
+		t.Fatalf("decode base64: %v", err)
+	}
+	var fromB64 map[string]any
+	if err := json.Unmarshal(decoded, &fromB64); err != nil {
+		t.Fatalf("unmarshal decoded base64: %v", err)
+	}
+	// Same wire snapshot -- preview and the pasteable base64 must agree,
+	// including LastUpdated (they come from one toWire() call, not two).
+	if preview["LastUpdated"] != fromB64["LastUpdated"] {
+		t.Errorf("expected preview and base64 to share LastUpdated, got %v vs %v", preview["LastUpdated"], fromB64["LastUpdated"])
 	}
 }
 
-func TestPreviewJSON_NoBase64Wrapping(t *testing.T) {
-	preview, err := Profile{RouteOrder: "Block>Proxy>Direct"}.PreviewJSON("user")
+func TestEncode_OmitsEmptyOptionalFields(t *testing.T) {
+	generated, err := Profile{}.Encode("user")
 	if err != nil {
-		t.Fatalf("PreviewJSON: %v", err)
+		t.Fatalf("Encode: %v", err)
 	}
-	if strings.Contains(preview, "://") {
-		t.Errorf("expected plain JSON with no deep-link scheme, got: %s", preview)
-	}
-	var raw map[string]any
-	if err := json.Unmarshal([]byte(preview), &raw); err != nil {
-		t.Fatalf("expected preview to be valid JSON: %v\n%s", err, preview)
-	}
-	if raw["RouteOrder"] != "Block>Proxy>Direct" {
-		t.Errorf("unexpected RouteOrder in preview: %v", raw["RouteOrder"])
-	}
-}
-
-func TestEncodeDeepLink_OmitsEmptyOptionalFields(t *testing.T) {
-	link, err := Profile{}.EncodeDeepLink("happ", "onadd", "user")
-	if err != nil {
-		t.Fatalf("EncodeDeepLink: %v", err)
-	}
-	encoded := strings.TrimPrefix(link, "happ://routing/onadd/")
-	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	decoded, err := base64.StdEncoding.DecodeString(generated.Base64)
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}

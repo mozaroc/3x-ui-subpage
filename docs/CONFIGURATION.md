@@ -93,25 +93,28 @@ bearer-token-only.
   per-link config download), never reconstructed by this service. Only the
   full xray-core JSON config, Clash, Mihomo, Happ, and Incy formats are
   admin-templated. The same page also has a **Routing (Happ / Incy)**
-  section — per-subscriber configuration of the Happ/Incy apps' own native
-  "Routing Profile" traffic-splitting feature (per
-  [Happ's Routing Generator](https://routing.happ.su)): a toggle, and a
-  structured editor for every field the generator itself exposes
-  (`GlobalProxy`, `RouteOrder`, `DomainStrategy`, remote/domestic DNS,
-  `DnsHosts`, GeoIP/GeoSite URLs, Direct/Proxy/Block site+IP lists,
-  `FakeDNS`, `UseChunkFiles`), plus a live JSON preview of the exact
-  generated payload. When enabled, the profile is embedded automatically
-  into that subscriber's Happ and Incy responses via the `Routing`/
-  `Routing-Enable` HTTP headers (`happ://routing/onadd/<base64 json>` or
-  `incy://...` depending on the client) — mirrors upstream 3x-ui's own
+  section — just a toggle and a Base64 paste-target, not a rule editor.
+  The rules themselves are authored once on the standalone
+  **Routing Generator** page (`/admin/routing`), a structured editor for
+  every field the Happ/Incy apps' own native "Routing Profile"
+  traffic-splitting feature exposes (per
+  [Happ's Routing Generator](https://routing.happ.su)) — `GlobalProxy`,
+  `RouteOrder`, `DomainStrategy`, remote/domestic DNS, `DnsHosts`,
+  GeoIP/GeoSite URLs, Direct/Proxy/Block site+IP lists, `FakeDNS`,
+  `UseChunkFiles` — plus a live JSON preview. Clicking Generate produces a
+  single Base64 string (with a copy button) that the admin then pastes
+  into any number of users' Routing sections, toggling each on
+  independently. When enabled and a string is present, it's embedded
+  automatically into that subscriber's Happ and Incy responses via the
+  `Routing`/`Routing-Enable` HTTP headers (`happ://routing/onadd/<base64>`
+  or `incy://...` depending on the client) — mirrors upstream 3x-ui's own
   per-panel implementation, scoped per-subscriber here. This is a
   completely different feature from the old global Xray-core routing rules
   (GEOIP/domain/CIDR baked into a generated config body) that used to live
-  on a separate `/admin/routing` page — that page has been removed;
-  nothing replaced it, since per-subscriber Happ/Incy routing supersedes
-  the need it served for those two client types, and Clash/Mihomo/Xray-JSON
-  templates can still express their own routing directly in their own
-  template content if needed.
+  on a separate `/admin/routing` page — that page (and its rules) were
+  removed outright, and this feature's own page now occupies the same
+  URL; Clash/Mihomo/Xray-JSON templates can still express their own
+  routing directly in their own template content if needed.
 - **Sync** (`/admin/sync`, and the sync history on each user's detail page)
   — every push to 3x-ui is queued, retried with backoff on failure
   (terminally failed after 8 attempts, manually retriable from either
@@ -175,7 +178,8 @@ UI — useful for bulk imports/exports or one-off automation:
 
 ```sql
 -- tables: settings, applications, themes, theme_files, templates,
--- template_assignments, user_routing, users, user_inbounds, sync_jobs
+-- template_assignments, routing_generator, user_routing, users,
+-- user_inbounds, sync_jobs
 INSERT INTO settings (key, value, updated_at) VALUES
   ('support', '{"telegram":"https://t.me/example"}', unixepoch());
 
@@ -188,10 +192,10 @@ INSERT INTO templates (format, profile, protocol, content, updated_at)
 INSERT INTO template_assignments (sub_id, client_type, profile, updated_at)
   VALUES ('the-subscribers-subid', 'mihomo', 'gaming', unixepoch());
 
--- config is the JSON-encoded internal/routing.Profile (Happ/Incy's own
--- Routing Profile schema -- GlobalProxy, RouteOrder, DirectSites, etc.)
-INSERT INTO user_routing (sub_id, enabled, config, updated_at)
-  VALUES ('the-subscribers-subid', 1, '{"RouteOrder":"Proxy>Direct>Block","DirectSites":["example.com"]}', unixepoch());
+-- routing_b64 is the exact Base64 string produced by the Routing Generator
+-- page (/admin/routing) -- an opaque blob, not something to hand-author here
+INSERT INTO user_routing (sub_id, enabled, routing_b64, updated_at)
+  VALUES ('the-subscribers-subid', 1, '<base64 from the Routing Generator>', unixepoch());
 ```
 
 The admin UI and direct SQL are just two ways of writing the same rows —

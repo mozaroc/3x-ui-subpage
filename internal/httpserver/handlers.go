@@ -92,25 +92,17 @@ func setSubscriptionUserinfo(w http.ResponseWriter, sub domain.Subscription) {
 // Routing-Enable: false is set -- no Routing header at all, so the client
 // behaves exactly as it did before this feature existed.
 func (s *Server) writeRoutingHeaders(w http.ResponseWriter, sub domain.Subscription, scheme string) {
-	enabled, profile, err := s.deps.Routing.Get(sub.SubID)
+	enabled, routingB64, err := s.deps.Routing.Get(sub.SubID)
 	if err != nil {
 		s.deps.Logger.Warn("resolve routing profile failed", "sub_id", sub.SubID, "err", err)
 		return
 	}
-	w.Header().Set("Routing-Enable", strconv.FormatBool(enabled))
-	if !enabled {
+	active := enabled && routingB64 != ""
+	w.Header().Set("Routing-Enable", strconv.FormatBool(active))
+	if !active {
 		return
 	}
-	name := sub.Username
-	if name == "" {
-		name = sub.SubID
-	}
-	link, err := profile.EncodeDeepLink(scheme, "onadd", name)
-	if err != nil {
-		s.deps.Logger.Warn("encode routing deep link failed", "sub_id", sub.SubID, "err", err)
-		return
-	}
-	w.Header().Set("Routing", link)
+	w.Header().Set("Routing", fmt.Sprintf("%s://routing/onadd/%s", scheme, routingB64))
 }
 
 func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {

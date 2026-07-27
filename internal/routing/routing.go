@@ -48,7 +48,8 @@ type Profile struct {
 	UseChunkFiles bool
 }
 
-// Store wraps the "user_routing" table (one row per sub_id).
+// Store wraps the "user_routing" table (one row per sub_id) and the
+// single-row "routing_generator" table.
 type Store struct {
 	db *sql.DB
 }
@@ -58,52 +59,88 @@ func New(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
-// Get returns subID's routing profile. A missing row is not an error --
-// it just means routing has never been configured for this subscriber,
-// reported as enabled=false with a zero-value Profile.
-func (s *Store) Get(subID string) (enabled bool, profile Profile, err error) {
+// Get returns subID's routing toggle/string. A missing row is not an
+// error -- it just means routing has never been configured for this
+// subscriber, reported as enabled=false with an empty string.
+func (s *Store) Get(subID string) (enabled bool, routingB64 string, err error) {
 	var enabledInt int
-	var config string
-	err = s.db.QueryRow(`SELECT enabled, config FROM user_routing WHERE sub_id = ?`, subID).Scan(&enabledInt, &config)
+	err = s.db.QueryRow(`SELECT enabled, routing_b64 FROM user_routing WHERE sub_id = ?`, subID).Scan(&enabledInt, &routingB64)
 	switch {
 	case err == nil:
-		if jsonErr := json.Unmarshal([]byte(config), &profile); jsonErr != nil {
-			return false, Profile{}, fmt.Errorf("routing: decode profile for %s: %w", subID, jsonErr)
-		}
-		return enabledInt != 0, profile, nil
+		return enabledInt != 0, routingB64, nil
 	case errors.Is(err, sql.ErrNoRows):
-		return false, Profile{}, nil
+		return false, "", nil
 	default:
-		return false, Profile{}, fmt.Errorf("routing: query %s: %w", subID, err)
+		return false, "", fmt.Errorf("routing: query %s: %w", subID, err)
 	}
 }
 
-// Set creates or overwrites subID's routing profile.
-func (s *Store) Set(subID string, enabled bool, profile Profile) error {
-	config, err := json.Marshal(profile)
-	if err != nil {
-		return fmt.Errorf("routing: encode profile for %s: %w", subID, err)
-	}
-
+// Set creates or overwrites subID's routing toggle/string.
+func (s *Store) Set(subID string, enabled bool, routingB64 string) error {
 	enabledInt := 0
 	if enabled {
 		enabledInt = 1
 	}
 
-	_, err = s.db.Exec(`
-		INSERT INTO user_routing (sub_id, enabled, config, updated_at) VALUES (?, ?, ?, ?)
-		ON CONFLICT(sub_id) DO UPDATE SET enabled = excluded.enabled, config = excluded.config, updated_at = excluded.updated_at`,
-		subID, enabledInt, string(config), time.Now().UnixNano())
+	_, err := s.db.Exec(`
+		INSERT INTO user_routing (sub_id, enabled, routing_b64, updated_at) VALUES (?, ?, ?, ?)
+		ON CONFLICT(sub_id) DO UPDATE SET enabled = excluded.enabled, routing_b64 = excluded.routing_b64, updated_at = excluded.updated_at`,
+		subID, enabledInt, routingB64, time.Now().UnixNano())
 	if err != nil {
 		return fmt.Errorf("routing: set %s: %w", subID, err)
 	}
 	return nil
 }
 
-// DeleteAll removes subID's routing profile row, if any.
+// DeleteAll removes subID's routing row, if any.
 func (s *Store) DeleteAll(subID string) error {
 	if _, err := s.db.Exec(`DELETE FROM user_routing WHERE sub_id = ?`, subID); err != nil {
 		return fmt.Errorf("routing: delete %s: %w", subID, err)
 	}
 	return nil
+}
+
+// GetGenerator loads the Routing Generator page's persisted state -- the
+// last-edited profile fields and the last Base64 blob they produced. A
+// missing row (nothing generated yet) is not an error -- it's reported as
+// zero values.
+func (s *Store) GetGenerator() (name string, profile Profile, generatedB64 string, err error) {
+	var profileJSON string
+	err = s.db.QueryRow(`SELECT name, profile, generated_b64 FROM routing_generator WHERE id = 1`).
+		Scan(&name, &profileJSON, &generatedB64)
+	switch {
+	case err == nil:
+		if jsonErr := json.Unmarshal([]byte(profileJSON), &profile); jsonErr != nil {
+			return "", Profile{}, "", fmt.Errorf("routing: decode generator profile: %w", jsonErr)
+		}
+		return name, profile, generatedB64, nil
+	case errors.Is(err, sql.ErrNoRows):
+		return "", Profile{}, "", nil
+	default:
+		return "", Profile{}, "", fmt.Errorf("routing: query generator: %w", err)
+	}
+}
+
+// SaveGenerator encodes profile (named per name), persists both the raw
+// inputs and the fresh encode as the Generator page's state, and returns
+// that encode for immediate display.
+func (s *Store) SaveGenerator(name string, profile Profile) (GeneratedRouting, error) {
+	generated, err := profile.Encode(name)
+	if err != nil {
+		return GeneratedRouting{}, err
+	}
+
+	profileJSON, err := json.Marshal(profile)
+	if err != nil {
+		return GeneratedRouting{}, fmt.Errorf("routing: encode generator profile: %w", err)
+	}
+
+	_, err = s.db.Exec(`
+		INSERT INTO routing_generator (id, name, profile, generated_b64, updated_at) VALUES (1, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET name = excluded.name, profile = excluded.profile, generated_b64 = excluded.generated_b64, updated_at = excluded.updated_at`,
+		name, string(profileJSON), generated.Base64, time.Now().UnixNano())
+	if err != nil {
+		return GeneratedRouting{}, fmt.Errorf("routing: save generator: %w", err)
+	}
+	return generated, nil
 }

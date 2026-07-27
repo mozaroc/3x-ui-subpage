@@ -2,138 +2,21 @@
 <div class="form-section">
   <div class="form-section__title">Routing (Happ / Incy)</div>
   <p class="hint">
-    Configures the client apps' own native Routing Profile (per
-    <a href="https://routing.happ.su" target="_blank" rel="noopener">Happ's Routing Generator</a>) --
-    unrelated to the Xray/Clash/Mihomo config formats above. When enabled, the
-    generated profile is embedded into this user's Happ and Incy deep links
-    automatically (via the Routing/Routing-Enable response headers); when
-    disabled, those clients get no routing configuration at all.
+    Paste a Base64 routing string generated on the
+    <a href="/admin/routing">Routing Generator</a> page. When enabled, it's
+    embedded automatically into this user's Happ and Incy deep links; when
+    disabled or left blank, those clients get no routing configuration at
+    all.
   </p>
   <div class="form-grid">
     <div class="field field--sm">
       <label>Enable routing</label>
       <input type="checkbox" name="routing_enabled" value="1" {{if .Enabled}}checked{{end}}>
     </div>
-    <div class="field field--sm">
-      <label>Global proxy</label>
-      <input type="checkbox" name="routing_global_proxy" value="1" {{if .GlobalProxy}}checked{{end}}>
-    </div>
-    <div class="field field--md">
-      <label>Route order</label>
-      <select name="routing_route_order">
-        {{$sel := .RouteOrder}}
-        {{range .RouteOrderOptions}}
-        <option value="{{.}}" {{if eq . $sel}}selected{{end}}>{{.}}</option>
-        {{end}}
-      </select>
-    </div>
-    <div class="field field--md">
-      <label>Domain strategy</label>
-      <select name="routing_domain_strategy">
-        {{$sel := .DomainStrategy}}
-        {{range .DomainStrategyOptions}}
-        <option value="{{.}}" {{if eq . $sel}}selected{{end}}>{{.}}</option>
-        {{end}}
-      </select>
-    </div>
   </div>
-
-  <div class="form-grid">
-    <div class="field field--sm">
-      <label>Remote DNS type</label>
-      <select name="routing_remote_dns_type">
-        {{$sel := .RemoteDNSType}}
-        {{range .DNSTypeOptions}}
-        <option value="{{.}}" {{if eq . $sel}}selected{{end}}>{{if .}}{{.}}{{else}}(none){{end}}</option>
-        {{end}}
-      </select>
-    </div>
-    <div class="field field--md">
-      <label>Remote DNS domain</label>
-      <input type="text" name="routing_remote_dns_domain" value="{{.RemoteDNSDomain}}" placeholder="dns.google">
-    </div>
-    <div class="field field--md">
-      <label>Remote DNS IP</label>
-      <input type="text" name="routing_remote_dns_ip" value="{{.RemoteDNSIP}}" placeholder="8.8.8.8">
-    </div>
-  </div>
-
-  <div class="form-grid">
-    <div class="field field--sm">
-      <label>Domestic DNS type</label>
-      <select name="routing_domestic_dns_type">
-        {{$sel := .DomesticDNSType}}
-        {{range .DNSTypeOptions}}
-        <option value="{{.}}" {{if eq . $sel}}selected{{end}}>{{if .}}{{.}}{{else}}(none){{end}}</option>
-        {{end}}
-      </select>
-    </div>
-    <div class="field field--md">
-      <label>Domestic DNS domain</label>
-      <input type="text" name="routing_domestic_dns_domain" value="{{.DomesticDNSDomain}}">
-    </div>
-    <div class="field field--md">
-      <label>Domestic DNS IP</label>
-      <input type="text" name="routing_domestic_dns_ip" value="{{.DomesticDNSIP}}">
-    </div>
-  </div>
-
-  <div class="form-grid">
-    <div class="field field--md">
-      <label>GeoIP URL</label>
-      <input type="text" name="routing_geoip_url" value="{{.GeoIPURL}}" placeholder="https://.../geoip.dat">
-    </div>
-    <div class="field field--md">
-      <label>GeoSite URL</label>
-      <input type="text" name="routing_geosite_url" value="{{.GeoSiteURL}}" placeholder="https://.../geosite.dat">
-    </div>
-    <div class="field field--sm">
-      <label>Fake DNS</label>
-      <input type="checkbox" name="routing_fake_dns" value="1" {{if .FakeDNS}}checked{{end}}>
-    </div>
-    <div class="field field--sm">
-      <label>Use chunk files</label>
-      <input type="checkbox" name="routing_use_chunk_files" value="1" {{if .UseChunkFiles}}checked{{end}}>
-    </div>
-  </div>
-
   <div class="field field--full">
-    <label>DNS hosts (one "domain ip" pair per line)</label>
-    <textarea name="routing_dns_hosts" rows="3" placeholder="example.com 1.2.3.4">{{.DNSHosts}}</textarea>
+    <label>Routing configuration (Base64)</label>
+    <textarea name="routing_b64" rows="4" class="mono" placeholder="eyJOYW1lIjoi...">{{.B64}}</textarea>
   </div>
-
-  <div class="form-grid">
-    <div class="field field--md">
-      <label>Direct sites (one per line)</label>
-      <textarea name="routing_direct_sites" rows="4">{{.DirectSites}}</textarea>
-    </div>
-    <div class="field field--md">
-      <label>Direct IPs / CIDRs (one per line)</label>
-      <textarea name="routing_direct_ip" rows="4">{{.DirectIP}}</textarea>
-    </div>
-    <div class="field field--md">
-      <label>Proxy sites (one per line)</label>
-      <textarea name="routing_proxy_sites" rows="4">{{.ProxySites}}</textarea>
-    </div>
-    <div class="field field--md">
-      <label>Proxy IPs / CIDRs (one per line)</label>
-      <textarea name="routing_proxy_ip" rows="4">{{.ProxyIP}}</textarea>
-    </div>
-    <div class="field field--md">
-      <label>Block sites (one per line)</label>
-      <textarea name="routing_block_sites" rows="4">{{.BlockSites}}</textarea>
-    </div>
-    <div class="field field--md">
-      <label>Block IPs / CIDRs (one per line)</label>
-      <textarea name="routing_block_ip" rows="4">{{.BlockIP}}</textarea>
-    </div>
-  </div>
-
-  {{if .Preview}}
-  <details>
-    <summary>Preview generated routing configuration</summary>
-    <pre class="mono wrap">{{.Preview}}</pre>
-  </details>
-  {{end}}
 </div>
 {{end}}

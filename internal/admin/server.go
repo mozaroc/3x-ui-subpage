@@ -101,6 +101,9 @@ func (s *Server) Router() http.Handler {
 		r.Get("/settings", s.handleSettingsList)
 		r.With(s.verifyCSRF).Post("/settings/{key}", s.handleSettingsSave)
 
+		r.Get("/routing", s.handleRoutingGeneratorForm)
+		r.With(s.verifyCSRF).Post("/routing", s.handleRoutingGeneratorGenerate)
+
 		r.Get("/applications", s.handleApplicationsList)
 		r.Get("/applications/new", s.handleApplicationForm)
 		r.With(s.verifyCSRF).Post("/applications", s.handleApplicationCreate)

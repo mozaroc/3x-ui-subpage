@@ -1,5 +1,5 @@
 {{define "app-card"}}
-<div class="app-card">
+<div class="app-card" data-platforms="{{range .App.Platforms}}{{.}} {{end}}">
   <img class="app-card__icon" src="/assets/{{.Theme.Slug}}/img/apps/{{.App.Icon}}" alt="{{.App.Name}}">
   <div class="app-card__body">
     <h3 class="app-card__name">{{.App.Name}}</h3>

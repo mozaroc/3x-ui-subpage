@@ -37,7 +37,20 @@
 </section>
 
 <section class="apps">
-  <h2>Applications</h2>
+  <div class="apps__header">
+    <h2>Applications</h2>
+    <label class="apps__filter">
+      <span>Platform</span>
+      <select id="platform-filter" data-platform-filter>
+        <option value="">All platforms</option>
+        <option value="windows">Windows</option>
+        <option value="macos">macOS</option>
+        <option value="linux">Linux</option>
+        <option value="android">Android</option>
+        <option value="ios">iOS</option>
+      </select>
+    </label>
+  </div>
   <div class="apps__grid">
     {{range .Data.Apps}}{{template "app-card" (dict "Theme" $.Theme "App" .)}}{{end}}
   </div>

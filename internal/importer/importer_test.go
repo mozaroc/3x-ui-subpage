@@ -39,8 +39,8 @@ func TestImport_ApplicationsRoundTrip(t *testing.T) {
 	}
 
 	var name string
-	if err := db.QueryRow(`SELECT name FROM applications WHERE name = 'Hiddify'`).Scan(&name); err != nil {
-		t.Fatalf("expected Hiddify to be imported: %v", err)
+	if err := db.QueryRow(`SELECT name FROM applications WHERE name = 'Prizrak-Box'`).Scan(&name); err != nil {
+		t.Fatalf("expected Prizrak-Box to be imported: %v", err)
 	}
 }
 

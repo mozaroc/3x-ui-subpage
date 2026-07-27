@@ -208,6 +208,31 @@ body {
 }
 .connections-block__actions img { border-radius: 8px; background: #fff; padding: 6px; margin-top: 8px; display: block; }
 
+.apps__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.apps__header h2 { margin: 0; }
+.apps__filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+.apps__filter select {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.85rem;
+}
+
 .apps__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));

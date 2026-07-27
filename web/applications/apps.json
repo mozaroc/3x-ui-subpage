@@ -1,26 +1,59 @@
 {
   "applications": [
     {
-      "name": "Hiddify",
-      "icon": "hiddify.png",
-      "description": "Cross-platform client with a friendly UI, recommended for most users",
-      "platforms": ["Windows", "macOS", "Linux", "Android", "iOS"],
-      "download": "https://github.com/hiddify/hiddify-next/releases",
-      "deeplink": "hiddify://install-config?url={subscription}",
-      "instructions": "Open the app, tap + then \"Add from URL\", or open this link directly.",
+      "name": "Prizrak-Box",
+      "icon": "prizrak-box.png",
+      "description": "Desktop GUI client for the Mihomo core, with built-in routing templates",
+      "platforms": ["Windows", "macOS", "Linux"],
+      "download": "https://github.com/legiz-ru/Prizrak-Box/releases/latest",
+      "deeplink": "",
+      "instructions": "Download the build for your OS, then import the subscription URL from the Profiles page.",
       "visible": true,
       "sortOrder": 1
     },
     {
-      "name": "Clash Verge",
-      "icon": "clash-verge.png",
-      "description": "Fast, modern Clash Meta client for desktop",
-      "platforms": ["Windows", "macOS", "Linux"],
-      "download": "https://github.com/clash-verge-rev/clash-verge-rev/releases",
-      "deeplink": "clash://install-config?url={subscription}",
-      "instructions": "Import the subscription URL from Profiles > Import.",
+      "name": "Happ",
+      "icon": "happ.png",
+      "description": "Modern, feature-rich proxy client for Android, iOS, macOS, and Windows",
+      "platforms": ["Windows", "macOS", "Linux", "Android", "iOS"],
+      "download": "https://www.happ.su/",
+      "deeplink": "",
+      "instructions": "Install the app, then add the subscription URL from its Import/Add screen.",
       "visible": true,
       "sortOrder": 2
+    },
+    {
+      "name": "Incy",
+      "icon": "incy.png",
+      "description": "Modern VPN client with VLESS, VMess, Trojan and Shadowsocks support",
+      "platforms": ["Windows", "macOS", "Linux", "Android", "iOS"],
+      "download": "https://github.com/INCY-DEV/incy-platforms/releases/latest",
+      "deeplink": "",
+      "instructions": "Install the app, then add the subscription URL from its Import screen.",
+      "visible": true,
+      "sortOrder": 3
+    },
+    {
+      "name": "RabbitHole",
+      "icon": "rabbithole.png",
+      "description": "Clean, simple VPN client for iOS and macOS",
+      "platforms": ["iOS", "macOS"],
+      "download": "https://apps.apple.com/us/app/rabbithole-vpn-client/id6683309629",
+      "deeplink": "",
+      "instructions": "Install the app, then add the subscription URL from its Import screen.",
+      "visible": true,
+      "sortOrder": 4
+    },
+    {
+      "name": "ClashMi",
+      "icon": "clashmi.png",
+      "description": "Cross-platform GUI client built on the Mihomo (Clash Meta) core",
+      "platforms": ["Windows", "macOS", "Linux", "Android", "iOS"],
+      "download": "https://clashmi.app",
+      "deeplink": "",
+      "instructions": "Install the app, then import the subscription URL from Profiles.",
+      "visible": true,
+      "sortOrder": 5
     },
     {
       "name": "v2rayNG",
@@ -31,7 +64,7 @@
       "deeplink": "v2rayng://install-config?url={subscription}",
       "instructions": "Tap the + button, choose \"Import config from URL\".",
       "visible": true,
-      "sortOrder": 3
+      "sortOrder": 6
     },
     {
       "name": "Shadowrocket",
@@ -42,29 +75,7 @@
       "deeplink": "shadowrocket://add/sub://{subscription}",
       "instructions": "Tap the link on your iOS device to add the subscription automatically.",
       "visible": true,
-      "sortOrder": 4
-    },
-    {
-      "name": "NekoBox",
-      "icon": "nekobox.png",
-      "description": "Xray/sing-box client for Android",
-      "platforms": ["Android"],
-      "download": "https://github.com/MatsuriDayo/NekoBoxForAndroid/releases",
-      "deeplink": "sn://subscription?url={subscription}",
-      "instructions": "Add a profile group from URL in the app's Profiles tab.",
-      "visible": true,
-      "sortOrder": 5
-    },
-    {
-      "name": "Mihomo Party",
-      "icon": "mihomo-party.png",
-      "description": "Desktop GUI for the Mihomo (Clash Meta) core",
-      "platforms": ["Windows", "macOS", "Linux"],
-      "download": "https://github.com/mihomo-party-org/mihomo-party/releases",
-      "deeplink": "clash://install-config?url={subscription}",
-      "instructions": "Import the subscription URL from the Profiles page.",
-      "visible": true,
-      "sortOrder": 6
+      "sortOrder": 7
     }
   ]
 }
